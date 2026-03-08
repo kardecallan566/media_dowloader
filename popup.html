@@ -1,74 +1,270 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="pt-br">
 
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Media Finder</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Finder Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --secondary: #ec4899;
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            cursor: default;
+        }
+
         body {
-            font: 14px/1.4 system-ui, sans-serif;
-            margin: 12px;
-            width: 360px;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            width: 400px;
+            min-height: 500px;
+            padding: 16px;
+            overflow-x: hidden;
         }
 
-        h1 {
-            font-size: 16px;
-            margin: 0 0 8px;
+        /* Scrollbar charmosa */
+        ::-webkit-scrollbar {
+            width: 4px;
         }
 
-        .item {
-            border: 1px solid #ddd;
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary);
             border-radius: 10px;
-            padding: 8px;
-            margin-bottom: 8px;
         }
 
-        .url {
-            word-break: break-all;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-size: 12px;
-        }
-
-        .meta {
-            color: #555;
-            font-size: 12px;
-        }
-
-        .row {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-        }
-
-        button,
-        a.btn {
-            padding: 6px 10px;
-            border-radius: 8px;
-            border: 1px solid #ccc;
-            text-decoration: none;
-        }
-
-        .empty {
-            color: #777;
-        }
-
-        .top {
+        header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 8px;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo h1 {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #818cf8, #ec4899);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-circle {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-circle:hover {
+            background: var(--primary);
+            border-color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        #list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .media-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .media-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            border-color: rgba(99, 102, 241, 0.4);
+        }
+
+        .media-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 12px;
+        }
+
+        .media-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .media-meta {
+            font-size: 11px;
+            color: var(--text-dim);
+            display: flex;
+            gap: 8px;
+        }
+
+        .tag {
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .tag.video {
+            color: #818cf8;
+        }
+
+        .tag.audio {
+            color: #fbbf24;
+        }
+
+        .tag.stream {
+            color: #f472b6;
+        }
+
+        .media-url {
+            font-size: 10px;
+            color: var(--text-dim);
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 4px;
+            border-radius: 4px;
+            user-select: all;
+            cursor: text;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-action {
+            flex: 1;
+            padding: 8px;
+            border-radius: 8px;
+            border: none;
+            background: #27272a;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-action:hover {
+            background: #3f3f46;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), #818cf8);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--primary-hover), var(--primary));
+            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 300px;
+            text-align: center;
+            color: var(--text-dim);
+        }
+
+        .empty-state svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .footer {
+            margin-top: auto;
+            padding-top: 20px;
+            font-size: 11px;
+            text-align: center;
+            color: var(--text-dim);
+            opacity: 0.7;
         }
     </style>
 </head>
 
 <body>
-    <div class="top">
-        <h1>Mídias detectadas</h1>
-        <button id="refresh">Atualizar</button>
+    <header>
+        <div class="logo">
+            <h1>Media Finder Pro 🎥</h1>
+        </div>
+        <div class="controls">
+            <button id="refresh" class="btn-circle" title="Atualizar">🔄</button>
+            <button id="clear" class="btn-circle" title="Limpar">🗑️</button>
+        </div>
+    </header>
+
+    <div id="list">
+        <!-- Itens serão inseridos aqui -->
     </div>
-    <div id="list"></div>
-    <button id="clear">Limpar desta aba</button>
+
+    <div class="footer">
+        Desenvolvido para alta performance &bull; v1.1.1 🚀
+    </div>
+
     <script src="popup.js"></script>
 </body>
 

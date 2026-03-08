@@ -1,21 +1,22 @@
 {
     "manifest_version": 3,
-    "name": "Media Finder – Legal Downloader",
-    "description": "Detecta mídias (vídeo/áudio) em páginas e oferece opções de download quando permitido (sem DRM).",
-    "version": "1.0.0",
+    "name": "Media Finder Pro 🎥",
+    "description": "Detector de mídias premium 🔍. Baixe vídeos em alta qualidade de qualquer site.",
+    "version": "1.1.1",
     "action": {
-        "default_title": "Media Finder",
+        "default_title": "Media Finder 🔍",
         "default_popup": "popup.html"
     },
     "icons": {
-        "16": "icons/icon16.png",
-        "48": "icons/icon48.png",
-        "128": "icons/icon128.png"
+        "16": "icons/icon.png",
+        "48": "icons/icon.png",
+        "128": "icons/icon.png"
     },
     "permissions": [
         "activeTab",
         "scripting",
-        "webRequest"
+        "webRequest",
+        "storage"
     ],
     "host_permissions": [
         "<all_urls>"
@@ -34,8 +35,5 @@
             ],
             "run_at": "document_idle"
         }
-    ],
-    "optional_host_permissions": [
-        "<all_urls>"
     ]
 }
