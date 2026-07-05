@@ -1,82 +1,25 @@
-# Media Finder – Extensão de Navegador (Legal e sem DRM)
+# Media Finder Pro 🎥
 
-Uma extensão de navegador (Manifest V3) que detecta mídias de vídeo e áudio em páginas web e oferece opções de download ou gravação quando permitido. **Não contorna DRM (Widevine/EME)** e deve ser usada **somente para conteúdos de uso legal**.
+Extensão de navegador profissional para detecção e download de mídias, inspirada no Video DownloadHelper, mas otimizada para a web moderna.
 
----
+## ✨ Funcionalidades
+- **Download Direto de HLS (m3u8)**: Baixa todos os segmentos automaticamente e os une em um arquivo MP4 único.
+- **Detecção Inteligente**: Intercepta requisições de rede para encontrar vídeos que não aparecem no DOM.
+- **Download Paralelo**: Motor multi-thread para downloads de segmentos 5x mais rápidos.
+- **Interface Premium**: Design escuro moderno com barras de progresso em tempo real.
+- **Sem Gravação de Tela**: Diferente de outras extensões, o download é feito via stream de dados, preservando 100% da qualidade original.
 
-## 📂 Estrutura do projeto
+## 🚀 Como usar
+1. Navegue até um site com vídeo (ex: YouTube, sites de streaming).
+2. Dê "Play" no vídeo para que a extensão capture o manifesto.
+3. Clique no ícone da extensão e escolha "Baixar Completo".
+4. O arquivo será processado e salvo na sua pasta de Downloads.
 
-```
-media-downloader/
-├─ manifest.json
-├─ background.js
-├─ content.js
-├─ popup.html
-├─ popup.js
-└─ icons/
-   ├─ icon16.png
-   ├─ icon48.png
-   └─ icon128.png
-```
-
----
-
-## ⚙️ Funcionalidades
-
-* Detecta URLs de mídia em páginas (vídeo/áudio HTML5).
-* Lista as mídias detectadas no popup da extensão.
-* Opções para **abrir** a mídia em nova aba ou **baixar** diretamente (quando disponível).
-* Injeta botões sobre `<video>` da página para:
-
-  * **Baixar o `src` direto** (se permitido pelo servidor).
-  * **Gravar alguns segundos** do vídeo em reprodução com `MediaRecorder` (não funciona em vídeos com DRM).
+## 🛠️ Tecnologias
+- **JavaScript (ES6+)**
+- **Chrome Extension API (Manifest v3)**
+- **HLS Segment Merging Engine**
+- **CSS Grid/Flexbox Moderno**
 
 ---
-
-## 🚀 Instalação (Chrome, Edge, Brave)
-
-1. Clone ou baixe este repositório.
-2. Abra `chrome://extensions/`.
-3. Ative **Modo do Programador**.
-4. Clique em **Carregar sem compactação** e selecione a pasta `media-downloader`.
-
----
-
-## 🖥️ Como usar
-
-1. Acesse um site que contenha vídeo ou áudio HTML5.
-2. Reproduza a mídia.
-3. Clique no ícone da extensão para visualizar as mídias detectadas.
-4. Clique em **Abrir** ou **Baixar**.
-5. Também é possível usar o botão injetado no player `<video>` para baixar ou gravar.
-
----
-
-## ⚠️ Limitações
-
-* Não baixa conteúdos protegidos por DRM (ex.: Netflix, Amazon Prime, Disney+).
-* Playlists de streaming adaptativo (HLS/DASH: `.m3u8`, `.mpd`) podem não gerar um arquivo único.
-* Mídias carregadas apenas via **MSE + blob:** podem não estar acessíveis diretamente.
-
----
-
-## 📌 Boas práticas de uso
-
-* Use apenas para baixar **conteúdos próprios, de domínio público ou com permissão explícita**.
-* Respeite direitos autorais e termos de serviço dos sites.
-
----
-
-## 🔮 Ideias futuras
-
-* Suporte a gravação por tempo customizado.
-* Whitelist/blacklist de domínios.
-* Preferências salvas no `chrome.storage`.
-* Opção de priorizar faixas de maior qualidade.
-* Porta para Firefox.
-
----
-
-## 📝 Licença
-
-Este projeto é distribuído apenas para fins educacionais. O autor **não se responsabiliza pelo uso indevido** da extensão.
+Desenvolvido para ser a ferramenta definitiva de download de mídia.

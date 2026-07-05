@@ -1,5 +1,5 @@
 // Media Finder Pro - Background Script
-// Gestão de mídias detectadas com persistência e detecção avançada para YouTube
+// Motor de detecção e persistência de mídias
 
 async function getMediaStore() {
     const data = await chrome.storage.local.get('mediaStore');
@@ -10,14 +10,6 @@ async function saveMediaStore(store) {
     await chrome.storage.local.set({ mediaStore: store });
 }
 
-async function addToHistory(item) {
-    const data = await chrome.storage.local.get('history');
-    const history = data.history || [];
-    history.unshift({ ...item, timestamp: Date.now() });
-    if (history.length > 100) history.pop();
-    await chrome.storage.local.set({ history });
-}
-
 async function pushMedia(tabId, item) {
     if (!tabId || tabId < 0) return;
     const store = await getMediaStore();
@@ -26,93 +18,71 @@ async function pushMedia(tabId, item) {
     if (!store[tabKey]) store[tabKey] = [];
     const list = store[tabKey];
 
-    // Para YouTube, evitamos duplicar o mesmo vídeo (baseado no ID ou assinatura da URL)
-    const isYouTube = item.url.includes('googlevideo.com');
-    if (isYouTube) {
-        // Tenta encontrar uma URL similar (mesmo id de vídeo no YouTube)
-        const match = item.url.match(/[&?]id=([^&]+)/);
-        const vidId = match ? match[1] : null;
-        if (vidId && list.some(x => x.url.includes(`id=${vidId}`))) return;
+    // Evita duplicatas exatas
+    if (list.some(x => x.url === item.url)) return;
+
+    // Metadados adicionais
+    try {
+        const tab = await chrome.tabs.get(tabId);
+        item.tabTitle = tab.title || 'Mídia detectada';
+    } catch (e) {
+        item.tabTitle = item.tabTitle || 'Mídia detectada';
     }
+    
+    item.id = Math.random().toString(36).substr(2, 9);
+    item.time = new Date().toISOString();
 
-    if (!list.some(x => x.url === item.url)) {
-        try {
-            const tab = await chrome.tabs.get(tabId);
-            item.tabTitle = tab.title || 'Mídia detectada';
-        } catch (e) {
-            item.tabTitle = 'Mídia detectada';
-        }
+    list.push(item);
+    if (list.length > 50) list.shift();
 
-        list.push(item);
-        if (list.length > 50) list.shift();
-
-        await saveMediaStore(store);
-        chrome.action.setBadgeText({ text: list.length.toString(), tabId: tabId });
-        chrome.action.setBadgeBackgroundColor({ color: '#6366f1', tabId: tabId });
-    }
+    await saveMediaStore(store);
+    
+    // Atualiza o badge
+    chrome.action.setBadgeText({ text: list.length.toString(), tabId: tabId });
+    chrome.action.setBadgeBackgroundColor({ color: '#8b5cf6', tabId: tabId });
 }
 
-// Intercepta requisições de rede
+// Interceptador de rede para HLS, DASH e Vídeos Diretos
 chrome.webRequest.onHeadersReceived.addListener(
     async (details) => {
-        try {
-            const headers = details.responseHeaders || [];
-            const ctHeader = headers.find(h => h.name.toLowerCase() === 'content-type');
-            const clHeader = headers.find(h => h.name.toLowerCase() === 'content-length');
+        const headers = details.responseHeaders || [];
+        const ctHeader = headers.find(h => h.name.toLowerCase() === 'content-type');
+        const contentType = ctHeader?.value || '';
+        const url = details.url;
 
-            const contentType = ctHeader?.value || '';
-            const contentLength = clHeader?.value ? parseInt(clHeader.value) : 0;
-            const url = details.url;
+        const isHLS = contentType.includes('mpegurl') || url.includes('.m3u8');
+        const isMPD = contentType.includes('dash+xml') || url.includes('.mpd');
+        const isVideo = /^(video\/)/i.test(contentType) && !url.includes('range='); // Ignora chunks pequenos
+        const isAudio = /^(audio\/)/i.test(contentType);
 
-            // Detecção para YouTube (Google Video)
-            const isYouTubeMedia = url.includes('googlevideo.com/videoplayback');
-            const isVideo = /^(video\/)/i.test(contentType);
-            const isAudio = /^(audio\/)/i.test(contentType);
-            const isHLS = contentType.includes('mpegurl') || url.includes('.m3u8');
-            const isMPD = contentType.includes('dash+xml') || url.includes('.mpd');
-            const isPlaylist = isHLS || isMPD;
+        if (isHLS || isMPD || isVideo || isAudio) {
+            let typeLabel = 'Video';
+            if (isHLS) typeLabel = 'HLS Stream';
+            else if (isMPD) typeLabel = 'DASH Stream';
+            else if (isAudio) typeLabel = 'Audio';
 
-            if (isYouTubeMedia || isVideo || isAudio || isPlaylist) {
-                let typeLabel = 'Video';
-                if (isAudio && !isYouTubeMedia) typeLabel = 'Audio';
-                if (isHLS) typeLabel = 'HLS Stream';
-                if (isMPD) typeLabel = 'DASH Stream';
-
-                // No YouTube, o Content-Type pode vir como 'video/webm' ou 'application/x-protobuf'
-                if (isYouTubeMedia) {
-                    typeLabel = 'YouTube Stream';
-                    // Filtra apenas streams que pareçam ser de vídeo (pelo parâmetro mime na URL)
-                    if (url.includes('mime=audio')) typeLabel = 'YouTube Audio';
-                }
-
-                await pushMedia(details.tabId, {
-                    url,
-                    contentType,
-                    size: contentLength,
-                    type: typeLabel,
-                    time: new Date().toISOString()
-                });
-            }
-        } catch (e) {
-            // Silencioso
+            await pushMedia(details.tabId, {
+                url,
+                contentType,
+                type: typeLabel
+            });
         }
     },
     { urls: ["<all_urls>"] },
     ["responseHeaders"]
 );
 
-chrome.tabs.onRemoved.addListener(async (tabId) => {
-    const store = await getMediaStore();
-    delete store[tabId.toString()];
-    await saveMediaStore(store);
-});
-
+// Listeners de mensagens
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.cmd === 'getMediaForTab') {
         getMediaStore().then(store => {
-            const list = store[msg.tabId.toString()] || [];
-            sendResponse({ items: list });
+            sendResponse({ items: store[msg.tabId.toString()] || [] });
         });
+        return true;
+    }
+
+    if (msg.cmd === 'onMediaDetected') {
+        pushMedia(sender.tab.id, msg);
         return true;
     }
 
@@ -125,4 +95,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         return true;
     }
+});
+
+// Limpa storage ao fechar aba
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+    const store = await getMediaStore();
+    delete store[tabId.toString()];
+    await saveMediaStore(store);
 });

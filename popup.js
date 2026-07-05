@@ -1,5 +1,5 @@
-// Media Finder Pro - Popup Logic
-// Interação com o store do background script
+// Media Finder Pro - Popup Controller
+import { StreamDownloader } from './hls-downloader.js';
 
 async function getCurrentTabId() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -7,102 +7,126 @@ async function getCurrentTabId() {
 }
 
 function formatSize(bytes) {
-    if (!bytes || bytes === 0) return 'Tamanho desconhecido';
+    if (!bytes || bytes === 0) return 'Tamanho dinâmico';
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return parseFloat((bytes / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-function getTagClass(type) {
-    const t = type?.toLowerCase() || '';
-    if (t.includes('video')) return 'video';
-    if (t.includes('audio')) return 'audio';
-    if (t.includes('stream')) return 'stream';
-    return '';
-}
-
 function createMediaCard(item) {
     const card = document.createElement('div');
     card.className = 'media-card';
+    card.id = `media-${item.id}`;
 
     const title = item.tabTitle || 'Mídia detectada';
-    const tagClass = getTagClass(item.type);
-    const sizeStr = formatSize(item.size);
-    const timeStr = new Date(item.time).toLocaleTimeString();
     const isStream = item.type.includes('Stream');
+    const timeStr = new Date(item.time).toLocaleTimeString();
 
     card.innerHTML = `
         <div class="media-info">
             <div class="media-title" title="${title}">${title}</div>
             <div class="media-meta">
-                <span class="tag ${tagClass}">${item.type || 'Media'}</span>
-                <span>${sizeStr}</span>
+                <span class="tag ${item.type.toLowerCase().split(' ')[0]}">${item.type}</span>
                 <span>${timeStr}</span>
             </div>
-            <div class="progress-container" style="display:none; margin-top:8px;">
-                <div class="progress-bar" style="width:0%; height:4px; background:var(--primary); border-radius:2px; transition: width 0.3s;"></div>
-                <div class="progress-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">Iniciando download...</div>
+            <div class="quality-selector" style="margin-top:8px; display:${isStream ? 'block' : 'none'}">
+                <select class="quality-select" style="width:100%; background:#1e293b; color:white; border:1px solid #334155; padding:4px; border-radius:4px; font-size:11px;">
+                    <option value="auto">Melhor Qualidade (Auto)</option>
+                </select>
+            </div>
+            <div class="progress-container" style="display:none; margin-top:10px;">
+                <div class="progress-bg" style="width:100%; height:6px; background:#1e293b; border-radius:3px; overflow:hidden;">
+                    <div class="progress-fill" style="width:0%; height:100%; background:linear-gradient(90deg, #8b5cf6, #06b6d4); transition: width 0.3s;"></div>
+                </div>
+                <div class="progress-text" style="font-size:10px; color:#94a3b8; margin-top:5px; display:flex; justify-content:space-between;">
+                    <span>Preparando...</span>
+                    <span class="pct">0%</span>
+                </div>
             </div>
             <div class="media-url" title="${item.url}">${item.url}</div>
         </div>
         <div class="actions">
-            <a href="${item.url}" target="_blank" rel="noopener" class="btn-action">Link</a>
-            ${isStream ? 
-                `<button class="btn-action btn-primary download-stream-btn" data-url="${item.url}" data-type="${item.type}">Baixar Stream</button>` :
-                `<a href="${item.url}" download="${title}.mp4" class="btn-action btn-primary">Baixar</a>`
-            }
+            <button class="btn-action btn-primary dl-btn" data-url="${item.url}" data-type="${item.type}">
+                ${isStream ? 'Baixar Agora' : 'Download Direto'}
+            </button>
         </div>
     `;
 
-    const dlBtn = card.querySelector('.download-stream-btn');
-    if (dlBtn) {
-        dlBtn.addEventListener('click', async () => {
-            const url = dlBtn.dataset.url;
-            const type = dlBtn.dataset.type;
-            const progressContainer = card.querySelector('.progress-container');
-            const progressBar = card.querySelector('.progress-bar');
-            const progressText = card.querySelector('.progress-text');
+    const dlBtn = card.querySelector('.dl-btn');
+    const qualitySelect = card.querySelector('.quality-select');
 
-            dlBtn.disabled = true;
-            dlBtn.textContent = 'Processando...';
-            progressContainer.style.display = 'block';
-
+    // Tenta carregar qualidades se for stream
+    if (isStream) {
+        (async () => {
             try {
-                if (type.includes('HLS')) {
-                    const { HLSDownloader } = await import('./hls-downloader.js');
-                    const downloader = new HLSDownloader(url);
-                    await downloader.fetchManifest();
-                    
-                    const data = await downloader.download((p) => {
-                        const pct = Math.round(p * 100);
-                        progressBar.style.width = `${pct}%`;
-                        progressText.textContent = `Baixando segmentos: ${pct}%`;
+                const downloader = new StreamDownloader(item.url, item.type.includes('HLS') ? 'HLS' : 'DASH');
+                const variants = await downloader.fetchManifest();
+                if (Array.isArray(variants) && variants[0]?.resolution) {
+                    qualitySelect.innerHTML = '';
+                    variants.forEach(v => {
+                        const opt = document.createElement('option');
+                        opt.value = v.url;
+                        opt.textContent = `${v.resolution}`;
+                        qualitySelect.appendChild(opt);
                     });
-
-                    if (data) {
-                        const blob = new Blob([data], { type: 'video/mp4' });
-                        const blobUrl = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = blobUrl;
-                        a.download = `${title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
-                        a.click();
-                        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-                        progressText.textContent = 'Download concluído!';
-                    }
-                } else {
-                    // Para DASH ou outros, fallback de cópia por enquanto ou implementação futura
-                    navigator.clipboard.writeText(url);
-                    progressText.textContent = 'Link copiado (Suporte DASH em breve)';
                 }
-            } catch (err) {
-                progressText.textContent = 'Erro no download: ' + err.message;
-                console.error(err);
-            } finally {
-                dlBtn.disabled = false;
-                dlBtn.textContent = 'Baixar Stream';
-            }
-        });
+            } catch (e) { console.error('Erro ao carregar variantes', e); }
+        })();
     }
+
+    dlBtn.onclick = async () => {
+        const selectedUrl = qualitySelect.value === 'auto' ? item.url : qualitySelect.value;
+        const progressContainer = card.querySelector('.progress-container');
+        const progressFill = card.querySelector('.progress-fill');
+        const progressText = card.querySelector('.progress-text span');
+        const progressPct = card.querySelector('.pct');
+
+        dlBtn.disabled = true;
+        dlBtn.style.opacity = '0.5';
+        dlBtn.textContent = 'Baixando...';
+        progressContainer.style.display = 'block';
+
+        try {
+            if (isStream) {
+                const downloader = new StreamDownloader(selectedUrl, item.type.includes('HLS') ? 'HLS' : 'DASH');
+                await downloader.fetchManifest();
+                const data = await downloader.download((p) => {
+                    const pct = Math.round(p * 100);
+                    progressFill.style.width = `${pct}%`;
+                    progressPct.textContent = `${pct}%`;
+                    progressText.textContent = `Baixando segmentos...`;
+                });
+
+                if (data) {
+                    const blob = new Blob([data], { type: 'video/mp4' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+                    a.click();
+                    progressText.textContent = 'Concluído!';
+                    setTimeout(() => URL.revokeObjectURL(url), 10000);
+                }
+            } else {
+                // Download direto via API do Chrome para evitar problemas de CORS no Blob
+                chrome.downloads.download({
+                    url: item.url,
+                    filename: `${title.replace(/[^a-z0-9]/gi, '_')}.mp4`,
+                    saveAs: false
+                });
+                progressFill.style.width = '100%';
+                progressPct.textContent = '100%';
+                progressText.textContent = 'Enviado para o navegador';
+            }
+        } catch (err) {
+            progressText.textContent = 'Erro!';
+            console.error(err);
+        } finally {
+            dlBtn.disabled = false;
+            dlBtn.style.opacity = '1';
+            dlBtn.textContent = isStream ? 'Baixar Novamente' : 'Baixar Direto';
+        }
+    };
 
     return card;
 }
@@ -110,49 +134,34 @@ function createMediaCard(item) {
 async function render() {
     const listElement = document.getElementById('list');
     const tabId = await getCurrentTabId();
-
     if (!tabId) return;
 
-    // Solicita itens ao background (via storage no final das contas)
     const resp = await chrome.runtime.sendMessage({ cmd: 'getMediaForTab', tabId });
     const items = resp?.items || [];
 
     listElement.innerHTML = '';
 
     if (items.length === 0) {
-        const historyData = await chrome.storage.local.get('history');
-        const history = historyData.history || [];
-        
-        if (history.length > 0) {
-            listElement.innerHTML = '<div style="font-size:12px; color:var(--text-dim); margin-bottom:10px; font-weight:600;">HISTÓRICO RECENTE</div>';
-            history.forEach(item => listElement.appendChild(createMediaCard(item)));
-        } else {
-            listElement.innerHTML = `
-                <div class="empty-state">
-                    <div style="font-size: 48px; margin-bottom: 20px;">🕵️‍♂️</div>
-                    <p>Nenhuma mídia detectada nesta página.</p>
-                    <p style="font-size: 11px; margin-top: 8px;">Dica: Play no vídeo para detectar. ▶️</p>
-                </div>
-            `;
-        }
+        listElement.innerHTML = `
+            <div class="empty-state">
+                <div style="font-size: 40px;">🔍</div>
+                <p>Aguardando mídias...</p>
+                <p style="font-size: 11px; color: #64748b;">Inicie a reprodução do vídeo para detectar.</p>
+            </div>
+        `;
         return;
     }
 
-    // Inverte para mostrar os mais recentes primeiro
     [...items].reverse().forEach(item => {
         listElement.appendChild(createMediaCard(item));
     });
 }
 
-document.getElementById('refresh').addEventListener('click', render);
-
-document.getElementById('clear').addEventListener('click', async () => {
+document.getElementById('refresh').onclick = render;
+document.getElementById('clear').onclick = async () => {
     const tabId = await getCurrentTabId();
-    if (tabId) {
-        await chrome.runtime.sendMessage({ cmd: 'clearMediaForTab', tabId });
-        render();
-    }
-});
+    await chrome.runtime.sendMessage({ cmd: 'clearMediaForTab', tabId });
+    render();
+};
 
-// Inicialização
 document.addEventListener('DOMContentLoaded', render);
