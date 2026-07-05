@@ -25,11 +25,11 @@ function createMediaCard(item) {
     const card = document.createElement('div');
     card.className = 'media-card';
 
-    // Fallback para título
     const title = item.tabTitle || 'Mídia detectada';
     const tagClass = getTagClass(item.type);
     const sizeStr = formatSize(item.size);
     const timeStr = new Date(item.time).toLocaleTimeString();
+    const isStream = item.type.includes('Stream');
 
     card.innerHTML = `
         <div class="media-info">
@@ -39,25 +39,68 @@ function createMediaCard(item) {
                 <span>${sizeStr}</span>
                 <span>${timeStr}</span>
             </div>
+            <div class="progress-container" style="display:none; margin-top:8px;">
+                <div class="progress-bar" style="width:0%; height:4px; background:var(--primary); border-radius:2px; transition: width 0.3s;"></div>
+                <div class="progress-text" style="font-size:10px; color:var(--text-dim); margin-top:4px;">Iniciando download...</div>
+            </div>
             <div class="media-url" title="${item.url}">${item.url}</div>
         </div>
         <div class="actions">
-            <a href="${item.url}" target="_blank" rel="noopener" class="btn-action">Abrir</a>
-            ${item.contentType?.includes('application/vnd.apple.mpegurl') ?
-            `<button class="btn-action btn-primary copy-btn" data-url="${item.url}">Copiar Link HLS</button>` :
-            `<a href="${item.url}" download class="btn-action btn-primary">Baixar</a>`
-        }
+            <a href="${item.url}" target="_blank" rel="noopener" class="btn-action">Link</a>
+            ${isStream ? 
+                `<button class="btn-action btn-primary download-stream-btn" data-url="${item.url}" data-type="${item.type}">Baixar Stream</button>` :
+                `<a href="${item.url}" download="${title}.mp4" class="btn-action btn-primary">Baixar</a>`
+            }
         </div>
     `;
 
-    // Handler para cópia (HLS)
-    const copyBtn = card.querySelector('.copy-btn');
-    if (copyBtn) {
-        copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(item.url).then(() => {
-                copyBtn.textContent = 'Copiado!';
-                setTimeout(() => copyBtn.textContent = 'Copiar Link HLS', 2000);
-            });
+    const dlBtn = card.querySelector('.download-stream-btn');
+    if (dlBtn) {
+        dlBtn.addEventListener('click', async () => {
+            const url = dlBtn.dataset.url;
+            const type = dlBtn.dataset.type;
+            const progressContainer = card.querySelector('.progress-container');
+            const progressBar = card.querySelector('.progress-bar');
+            const progressText = card.querySelector('.progress-text');
+
+            dlBtn.disabled = true;
+            dlBtn.textContent = 'Processando...';
+            progressContainer.style.display = 'block';
+
+            try {
+                if (type.includes('HLS')) {
+                    const { HLSDownloader } = await import('./hls-downloader.js');
+                    const downloader = new HLSDownloader(url);
+                    await downloader.fetchManifest();
+                    
+                    const data = await downloader.download((p) => {
+                        const pct = Math.round(p * 100);
+                        progressBar.style.width = `${pct}%`;
+                        progressText.textContent = `Baixando segmentos: ${pct}%`;
+                    });
+
+                    if (data) {
+                        const blob = new Blob([data], { type: 'video/mp4' });
+                        const blobUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = blobUrl;
+                        a.download = `${title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                        progressText.textContent = 'Download concluído!';
+                    }
+                } else {
+                    // Para DASH ou outros, fallback de cópia por enquanto ou implementação futura
+                    navigator.clipboard.writeText(url);
+                    progressText.textContent = 'Link copiado (Suporte DASH em breve)';
+                }
+            } catch (err) {
+                progressText.textContent = 'Erro no download: ' + err.message;
+                console.error(err);
+            } finally {
+                dlBtn.disabled = false;
+                dlBtn.textContent = 'Baixar Stream';
+            }
         });
     }
 
@@ -77,13 +120,21 @@ async function render() {
     listElement.innerHTML = '';
 
     if (items.length === 0) {
-        listElement.innerHTML = `
-            <div class="empty-state">
-                <div style="font-size: 48px; margin-bottom: 20px;">🕵️‍♂️</div>
-                <p>Nenhuma mídia detectada nesta página.</p>
-                <p style="font-size: 11px; margin-top: 8px;">Dica: Play no vídeo para detectar. ▶️</p>
-            </div>
-        `;
+        const historyData = await chrome.storage.local.get('history');
+        const history = historyData.history || [];
+        
+        if (history.length > 0) {
+            listElement.innerHTML = '<div style="font-size:12px; color:var(--text-dim); margin-bottom:10px; font-weight:600;">HISTÓRICO RECENTE</div>';
+            history.forEach(item => listElement.appendChild(createMediaCard(item)));
+        } else {
+            listElement.innerHTML = `
+                <div class="empty-state">
+                    <div style="font-size: 48px; margin-bottom: 20px;">🕵️‍♂️</div>
+                    <p>Nenhuma mídia detectada nesta página.</p>
+                    <p style="font-size: 11px; margin-top: 8px;">Dica: Play no vídeo para detectar. ▶️</p>
+                </div>
+            `;
+        }
         return;
     }
 

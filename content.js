@@ -17,19 +17,26 @@
             font-family: 'Inter', sans-serif;
         }
         .mf-main-btn {
-            background: linear-gradient(135deg, #ff0000, #ff5f5f);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(8px);
             color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 700;
+            padding: 10px 18px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(255, 0, 0, 0.4);
-            border: 2px solid white;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            transition: all 0.2s;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .mf-main-btn:hover {
+            background: rgba(139, 92, 246, 0.9);
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.4);
         }
         .mf-options-menu {
             background: rgba(15, 23, 42, 0.95);

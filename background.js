@@ -10,6 +10,14 @@ async function saveMediaStore(store) {
     await chrome.storage.local.set({ mediaStore: store });
 }
 
+async function addToHistory(item) {
+    const data = await chrome.storage.local.get('history');
+    const history = data.history || [];
+    history.unshift({ ...item, timestamp: Date.now() });
+    if (history.length > 100) history.pop();
+    await chrome.storage.local.set({ history });
+}
+
 async function pushMedia(tabId, item) {
     if (!tabId || tabId < 0) return;
     const store = await getMediaStore();
@@ -60,13 +68,15 @@ chrome.webRequest.onHeadersReceived.addListener(
             const isYouTubeMedia = url.includes('googlevideo.com/videoplayback');
             const isVideo = /^(video\/)/i.test(contentType);
             const isAudio = /^(audio\/)/i.test(contentType);
-            const isPlaylist = /(application\/vnd\.apple\.mpegurl|application\/x-mpegurl|application\/dash\+xml)/i.test(contentType) ||
-                url.includes('.m3u8') || url.includes('.mpd');
+            const isHLS = contentType.includes('mpegurl') || url.includes('.m3u8');
+            const isMPD = contentType.includes('dash+xml') || url.includes('.mpd');
+            const isPlaylist = isHLS || isMPD;
 
             if (isYouTubeMedia || isVideo || isAudio || isPlaylist) {
                 let typeLabel = 'Video';
                 if (isAudio && !isYouTubeMedia) typeLabel = 'Audio';
-                if (isPlaylist) typeLabel = 'Stream (HLS/DASH)';
+                if (isHLS) typeLabel = 'HLS Stream';
+                if (isMPD) typeLabel = 'DASH Stream';
 
                 // No YouTube, o Content-Type pode vir como 'video/webm' ou 'application/x-protobuf'
                 if (isYouTubeMedia) {
