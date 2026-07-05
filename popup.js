@@ -62,11 +62,18 @@ function createMediaCard(item) {
                 const downloader = new StreamDownloader(item.url, item.type.includes('HLS') ? 'HLS' : 'DASH');
                 const variants = await downloader.fetchManifest();
                 if (Array.isArray(variants) && variants[0]?.resolution) {
+                    // Ordena por resolução (maior primeiro)
+                    variants.sort((a, b) => {
+                        const resA = parseInt(a.resolution.split('x')[1] || 0);
+                        const resB = parseInt(b.resolution.split('x')[1] || 0);
+                        return resB - resA;
+                    });
+
                     qualitySelect.innerHTML = '';
                     variants.forEach(v => {
                         const opt = document.createElement('option');
                         opt.value = v.url;
-                        opt.textContent = `${v.resolution}`;
+                        opt.textContent = `${v.resolution} (HD)`;
                         qualitySelect.appendChild(opt);
                     });
                 }

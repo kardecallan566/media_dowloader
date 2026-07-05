@@ -18,8 +18,9 @@ async function pushMedia(tabId, item) {
     if (!store[tabKey]) store[tabKey] = [];
     const list = store[tabKey];
 
-    // Evita duplicatas exatas
-    if (list.some(x => x.url === item.url)) return;
+    // Evita duplicatas e agrupa URLs similares (mesma base sem query params)
+    const urlBase = item.url.split('?')[0];
+    if (list.some(x => x.url.split('?')[0] === urlBase)) return;
 
     // Metadados adicionais
     try {
@@ -50,12 +51,16 @@ chrome.webRequest.onHeadersReceived.addListener(
         const contentType = ctHeader?.value || '';
         const url = details.url;
 
+        // Filtros para ignorar segmentos individuais e focar no arquivo completo/manifesto
+        const isSegment = url.includes('.ts') || url.includes('.m4s') || url.includes('.m4v') || url.includes('.m4a') || url.includes('range=');
+        if (isSegment) return;
+
         const isHLS = contentType.includes('mpegurl') || url.includes('.m3u8');
         const isMPD = contentType.includes('dash+xml') || url.includes('.mpd');
-        const isVideo = /^(video\/)/i.test(contentType) && !url.includes('range='); // Ignora chunks pequenos
+        const isVideo = /^(video\/)/i.test(contentType);
         const isAudio = /^(audio\/)/i.test(contentType);
 
-        if (isHLS || isMPD || isVideo || isAudio) {
+        if (isHLS || isMPD || (isVideo && !isSegment) || (isAudio && !isSegment)) {
             let typeLabel = 'Video';
             if (isHLS) typeLabel = 'HLS Stream';
             else if (isMPD) typeLabel = 'DASH Stream';
