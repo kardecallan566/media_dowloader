@@ -90,28 +90,36 @@ function createMediaCard(item) {
 
         dlBtn.disabled = true;
         dlBtn.style.opacity = '0.5';
-        dlBtn.textContent = 'Baixando...';
+        dlBtn.textContent = 'Processando...';
         progressContainer.style.display = 'block';
 
         try {
             if (isStream) {
                 const downloader = new StreamDownloader(selectedUrl, item.type.includes('HLS') ? 'HLS' : 'DASH');
+                
+                progressText.textContent = 'Analisando playlist...';
                 await downloader.fetchManifest();
+                
+                const totalSegments = downloader.segments.length;
+                progressText.textContent = `Iniciando download (${totalSegments} segmentos)...`;
+
                 const data = await downloader.download((p) => {
                     const pct = Math.round(p * 100);
                     progressFill.style.width = `${pct}%`;
                     progressPct.textContent = `${pct}%`;
-                    progressText.textContent = `Baixando segmentos...`;
+                    const current = Math.round(p * totalSegments);
+                    progressText.textContent = `Baixando: ${current}/${totalSegments} segmentos`;
                 });
 
                 if (data) {
+                    progressText.textContent = 'Finalizando arquivo...';
                     const blob = new Blob([data], { type: 'video/mp4' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
                     a.download = `${title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
                     a.click();
-                    progressText.textContent = 'Concluído!';
+                    progressText.textContent = 'Download concluído!';
                     setTimeout(() => URL.revokeObjectURL(url), 10000);
                 }
             } else {
