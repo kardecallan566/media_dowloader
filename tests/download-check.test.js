@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseRange,validateProbe} from '../download-check.js';
+import {parseRange,validateProbe,validateCompleteVideo} from '../download-check.js';
 const http=(fields={})=>new Headers(fields);
 const box=(name,payload=0)=>{
  const size=payload+8,bytes=new Uint8Array(size);
@@ -54,4 +54,10 @@ test('allow valid PNG with sufficient size',()=>{
 test('do not claim unknown-length downloads are complete',()=>{
  const r=result(200,{'content-type':'video/mp4'},fullMp4);
  assert.equal(r.state,'uncertain');assert.equal(r.canDownload,false);
+});
+
+test('complete video validator rejects initialization-only and accepts playable structure',()=>{
+ const init=join(box('ftyp',16),box('moov',320488));
+ assert.equal(validateCompleteVideo(init,'mp4').ok,false);
+ assert.equal(validateCompleteVideo(fullMp4,'mp4').ok,true);
 });
