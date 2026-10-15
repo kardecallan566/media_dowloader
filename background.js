@@ -180,6 +180,21 @@ async function startDownload(tabId,id){
    throw new Error(analysis.reason);
   }
   await patchMedia(tabId,id,{analysis,status:'ready',message:analysis.reason});
+  const extension=fileExtension(item);
+  if(item.type==='Video'&&analysis.size&&analysis.size<=96*1024*1024&&['mp4','webm'].includes(extension)){
+   if(!await chrome.offscreen.hasDocument())await chrome.offscreen.createDocument({
+    url:'offscreen.html',reasons:['BLOBS'],justification:'Validar estrutura e duração de vídeos diretos antes de salvar'
+   });
+   await patchMedia(tabId,id,{status:'running',progress:0,message:'Baixando e validando vídeo completo...'});
+   const reply=await chrome.runtime.sendMessage({cmd:'runDirectJob',
+    id:item.id,tabId,url:item.url,title:item.label||item.tabTitle,
+    extension,expectedBytes:analysis.size,duration:item.duration||null});
+   if(!reply?.ok){
+    await patchMedia(tabId,id,{status:'error',message:reply?.error||'Falha no verificador de vídeo.'});
+    throw new Error(reply?.error||'Falha no verificador de vídeo.');
+   }
+   return {ok:true};
+  }
   let downloadId;
   try {
    downloadId=await chrome.downloads.download({url:item.url,filename:filename(item),saveAs:false,conflictAction:'uniquify'});
@@ -236,7 +251,7 @@ chrome.webRequest.onHeadersReceived.addListener(details=>{
 },{urls:['<all_urls>']},['responseHeaders']);
 
 chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
- if(msg?.cmd==='runHlsJob'||msg?.cmd==='cancelJob')return false; // offscreen owns these.
+ if(['runHlsJob','runDirectJob','cancelJob'].includes(msg?.cmd))return false; // offscreen owns these.
  (async()=>{
   if(msg.cmd==='onMediaDetected' || msg.cmd==='mediaSnapshot'){
    const list=msg.cmd==='mediaSnapshot'?msg.items:[msg];
