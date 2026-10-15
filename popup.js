@@ -33,6 +33,7 @@ function hostName(item){
  catch{return 'Fonte detectada';}
 }
 function statusText(item){
+ if(item.type==='Player')return item.note||'Player encontrado, mas a fonte original ainda não foi identificada.';
  if(item.status==='checking')return 'Analisando tamanho, resposta HTTP e estrutura da mídia...';
  if(item.status==='blocked')return item.message||'Fonte parcial ou indisponível.';
  if(item.status==='error')return item.message||'Falha no download';
@@ -65,7 +66,14 @@ function mediaCard(item,index,{uncertain=false}={}){
  const head=node('div','media-title',label(item,index));head.title=head.textContent;
  const chips=node('div','media-sub');
  const ext=fileExtension(item);
- chips.append(node('span','chip primary',item.type==='HLS'?'HLS':item.type==='DASH'?'DASH':(ext||'Arquivo').toUpperCase()));
+ chips.append(node('span','chip primary',item.type==='Player'?'PLAYER':item.type==='HLS'?'HLS':item.type==='DASH'?'DASH':(ext||'Arquivo').toUpperCase()));
+ if(item.type==='Player'){
+  chips.append(node('span','chip verified','Vídeo identificado'));
+  if(item.engine)chips.append(node('span','chip',item.engine));
+  if(item.trackVideo)chips.append(node('span','chip',item.trackVideo+' faixas de vídeo'));
+  if(item.trackAudio)chips.append(node('span','chip',item.trackAudio+' faixas de áudio'));
+ }
+ if(item.sourceKind==='progressive')chips.append(node('span','chip verified','Áudio + vídeo'));
  if(item.width&&item.height)chips.append(node('span','chip',`${item.width}×${item.height}`));
  if(item.duration)chips.append(node('span','chip',timeLabel(item.duration)));
  if(item.source==='page'&&item.visible)chips.append(node('span','chip','Na página'));
@@ -91,14 +99,17 @@ function mediaCard(item,index,{uncertain=false}={}){
  }
  const actions=node('div','media-actions');
  const isRunning=['checking','running','saving','downloading'].includes(item.status);
- const blocked=item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
+ const blocked=item.type==='Player'||item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
  const button=node('button','download-btn',isRunning?'Verificando / baixando...':blocked?'Verificar novamente':item.status==='done'?'Baixar novamente':
   (item.type==='HLS'?'Baixar stream':item.analysis?.canDownload?`Baixar ${names[kind]?.toLowerCase()||'arquivo'}`:'Verificar e baixar'));
  const formatMissing=item.type!=='HLS'&&item.type!=='DASH'&&!ext;
+ if(item.type==='Player')button.textContent='Fonte completa ainda não disponível';
  if(item.type==='DASH')button.textContent='DASH indisponível';
  if(formatMissing)button.textContent='Formato indisponível';
- button.disabled=isRunning||item.type==='DASH'||formatMissing;
- button.title=item.type==='DASH'?'O formato DASH precisa de um muxer de áudio e vídeo.':formatMissing?'Não foi possível identificar a extensão do arquivo.':'';
+ button.disabled=isRunning||item.type==='Player'||item.type==='DASH'||formatMissing;
+ button.title=item.type==='Player'?'O vídeo está visível no site, mas o arquivo original ainda não foi identificado.':
+  item.type==='DASH'?'O formato DASH precisa de um muxer de áudio e vídeo.':
+  formatMissing?'Não foi possível identificar a extensão do arquivo.':'';
  button.onclick=async()=>{
   button.disabled=true;button.textContent='Preparando...';notify('');
   try{
@@ -182,8 +193,8 @@ function render(){
  if(choices.some(item=>item.type==='HLS')){
   list.append(node('div','notice','Streams HLS podem ser salvos em formato TS; converter para MP4 pode exigir uma ferramenta externa.'));
  }
- if(active==='video'&&/youtube\.com|youtu\.be/i.test(tabUrl)&&!page.length)
-  list.append(node('div','notice','YouTube costuma usar áudio e vídeo separados (DASH). A extensão ainda não monta esse formato automaticamente.'));
+ if(active==='video'&&/youtube\.com|youtu\.be/i.test(tabUrl))
+  list.append(node('div','notice','No YouTube, o player usa frequentemente áudio e vídeo separados. A extensão identifica o vídeo e só oferece download direto quando há um arquivo com áudio e vídeo verificável.'));
  scheduleAutoVerify(focus);
 }
 function scheduleAutoVerify(focus){
