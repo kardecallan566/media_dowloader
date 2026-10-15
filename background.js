@@ -133,11 +133,11 @@ async function startDownload(tabId,id){
 async function cancelDownload(tabId,id){
  const item=await getItem(tabId,id);
  if(!item)throw new Error('Download não encontrado.');
- if(item.type==='HLS'){
-  await chrome.runtime.sendMessage({cmd:'cancelJob',id});
- }else if(item.downloadId!==undefined&&item.status==='downloading'){
+ if(item.downloadId!==undefined&&item.status==='downloading'){
   await chrome.downloads.cancel(item.downloadId);
   await patchMedia(tabId,id,{status:'canceled',message:'Download cancelado.'});
+ }else if(item.type==='HLS'){
+  await chrome.runtime.sendMessage({cmd:'cancelJob',id});
  }
  return {ok:true};
 }
@@ -180,7 +180,7 @@ chrome.downloads.onChanged.addListener(async delta=>{
    if(item.downloadId!==delta.id)continue;
    if(delta.state.current==='complete'){
     Object.assign(item,{status:'done',progress:100,message:'Arquivo salvo na pasta Downloads.'});
-   }else if(delta.state.current==='interrupted'){
+   }else if(delta.state.current==='interrupted'&&item.status!=='canceled'){
     Object.assign(item,{status:'error',message:'Transferência interrompida.'});
    }
    modified=true;
