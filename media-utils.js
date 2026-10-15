@@ -60,7 +60,7 @@ export function shouldIgnoreNetwork(url,type) {
 export function ranking(item) {
  const active=item.status==='running'||item.status==='saving'||item.status==='downloading';
  return (active?1000:0)+(item.source==='page'?300:0)+(item.visible?120:0)+
- (item.type==='HLS'?40:0)+(item.type==='Player'?38:0)+(item.type==='Video'?35:0)+(item.type==='DASH'?10:0);
+ (item.type==='HLS'?40:0)+(item.type==='Player'?30:0)+(item.type==='Video'?45:0)+(item.type==='DASH'?10:0);
 }
 export function sortMedia(items) {
  return [...items].sort((a,b)=>ranking(b)-ranking(a)||new Date(b.time)-new Date(a.time));
