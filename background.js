@@ -117,11 +117,11 @@ function filename(item){
 }
 
 // Read at most 512 KiB and cancel the response stream: never download a full large video just to inspect it.
-async function verifyFile(item){
+async function verifyFile(item,{force=false}={}){
  if(item.type==='DASH')return {state:'blocked',canDownload:false,reason:'DASH com áudio/vídeo separados ainda não possui muxer.'};
  if(item.type==='HLS')return {state:'uncertain',canDownload:true,reason:'HLS VOD será conferido pelo analisador de playlist antes de baixar.'};
  const cached=item.analysis;
- if(cached&&cached.checkedAt&&Date.now()-cached.checkedAt<90_000)return cached;
+ if(!force&&cached&&cached.checkedAt&&Date.now()-cached.checkedAt<90_000)return cached;
  const controller=new AbortController();
  const timeout=setTimeout(()=>controller.abort(),14000);
  let result;
@@ -157,12 +157,12 @@ async function verifyFile(item){
  }finally{clearTimeout(timeout);}
  return result;
 }
-async function verifyAndSave(tabId,id){
+async function verifyAndSave(tabId,id,force=false){
  const item=await getItem(tabId,id);
  if(!item)throw new Error('Mídia não encontrada.');
  if(running(item.status))return {ok:false,error:'O arquivo já está sendo processado.'};
  await patchMedia(tabId,id,{status:'checking',message:'Verificando se a URL oferece mídia completa...'});
- const analysis=await verifyFile(item);
+ const analysis=await verifyFile(item,{force});
  await patchMedia(tabId,id,{analysis,status:analysis.canDownload?'ready':'blocked',message:analysis.reason});
  return {ok:true,analysis};
 }
@@ -249,7 +249,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   }
   if(msg.cmd==='clearMediaForTab'){await clearTab(msg.tabId);return {ok:true};}
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
-  if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id);
+  if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
