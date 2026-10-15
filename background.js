@@ -61,6 +61,8 @@ chrome.webRequest.onHeadersReceived.addListener(details=>{
   storeMedia(details.tabId,{url:details.url,contentType:mime}).catch(console.warn);
 },{urls:['<all_urls>']},['responseHeaders']);
 chrome.runtime.onMessage.addListener((msg,sender,reply)=>{
+  // Mensagens exclusivas do documento offscreen: não disputar a resposta.
+  if (msg.cmd==='runHlsJob' || msg.cmd==='cancelJob') return false;
   (async()=>{
     if (msg.cmd==='onMediaDetected') {
       await storeMedia(sender.tab?.id,{url:msg.url,tabTitle:msg.tabTitle});
