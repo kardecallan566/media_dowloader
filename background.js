@@ -27,8 +27,8 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
   let changed=false;
   if(snapshot){
    const currentKeys=new Set(rawItems.filter(x=>x?.visible).map(x=>{
-    const url=normalizedUrl(x.url),type=url?mediaType(url,x.contentType||''):null;
-    return type?mediaKey(url,type):null;
+    const url=normalizedUrl(x.url),type=x.type==='Player'&&source==='page'?'Player':url?mediaType(url,x.contentType||''):null;
+    return type&&url?mediaKey(url,type,x.playerId):null;
    }).filter(Boolean));
    for(const old of list){
     if(old.source==='page'&&old.frameId===frameId&&old.visible&&!currentKeys.has(old.key)){
@@ -39,12 +39,21 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
   for(const input of rawItems.slice(0,45)){
    const url=normalizedUrl(input?.url);
    if(!url)continue;
-   const type=mediaType(url,input.contentType||'');
+   const type=(source==='page'&&input.type==='Player')?'Player':mediaType(url,input.contentType||'');
    if(!type || (source==='network'&&shouldIgnoreNetwork(url,type)))continue;
-   const identity=mediaKey(url,type);
+   const identity=mediaKey(url,type,input.playerId);
    let found=indexed.get(identity)||list.find(i=>i.url===url);
    const visible=source==='page'&&input.visible===true;
    if(found){
+    if(source==='page'&&type==='Player'){
+     for(const field of ['label','thumbnail','engine','note','trackVideo','trackAudio','duration']){
+      const value=input[field];
+      if(value!==undefined&&value!==found[field]){
+       found[field]=field==='label'||field==='note'||field==='engine'?clean(value):value;
+       changed=true;
+      }
+     }
+    }
     if(source==='network'&&input.responseStatus&&found.responseStatus!==input.responseStatus){
      found.responseStatus=input.responseStatus;
      found.responseRange=clean(input.contentRange);
@@ -66,6 +75,9 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
    }
    const item={
     id:crypto.randomUUID(),key:identity,url,type,source,visible,frameId,
+    playerId:clean(input.playerId),engine:clean(input.engine),note:clean(input.note),
+    trackVideo:Number(input.trackVideo)||0,trackAudio:Number(input.trackAudio)||0,
+    sourceKind:clean(input.sourceKind),quality:clean(input.quality),
     tabTitle:title,label:clean(input.label),contentType:clean(input.contentType),
     thumbnail:normalizedUrl(input.thumbnail)||null,
     duration:Number.isFinite(input.duration)&&input.duration>0?Math.round(input.duration):null,
@@ -118,6 +130,7 @@ function filename(item){
 
 // Read at most 512 KiB and cancel the response stream: never download a full large video just to inspect it.
 async function verifyFile(item,{force=false}={}){
+ if(item.type==='Player')return {state:'blocked',canDownload:false,reason:'Player identificado sem URL de arquivo completo. Consulte possíveis fontes, ou aguarde implementação do muxer.'};
  if(item.type==='DASH')return {state:'blocked',canDownload:false,reason:'DASH com áudio/vídeo separados ainda não possui muxer.'};
  if(item.type==='HLS')return {state:'uncertain',canDownload:true,reason:'HLS VOD será conferido pelo analisador de playlist antes de baixar.'};
  const cached=item.analysis;
@@ -171,6 +184,7 @@ async function startDownload(tabId,id){
  const item=await getItem(tabId,id);
  if(!item)throw new Error('Arquivo não encontrado nesta aba.');
  if(running(item.status))throw new Error('Este arquivo já está sendo baixado.');
+ if(item.type==='Player')throw new Error('Vídeo identificado no player, mas não há arquivo completo confirmado para baixar.');
  if(item.type==='DASH')throw new Error('DASH exige montagem de áudio/vídeo e ainda não está disponível.');
  if(item.type!=='HLS'){
   await patchMedia(tabId,id,{status:'checking',message:'Conferindo cabeçalho, tamanho e integridade inicial...'});
