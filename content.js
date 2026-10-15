@@ -1,51 +1,27 @@
-// Media Finder Pro - Content Script
-// Focado em detecção de elementos de vídeo e comunicação com o popup
-
-(function () {
-    // Remove qualquer overlay antigo se existir
-    const oldOverlay = document.getElementById('mf-media-overlay-container');
-    if (oldOverlay) oldOverlay.remove();
-
-    // Estilos para indicadores visuais discretos
-    const style = document.createElement('style');
-    style.textContent = `
-        .mf-detected-badge {
-            position: absolute;
-            z-index: 2147483647;
-            background: #8b5cf6;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 10px;
-            font-weight: bold;
-            pointer-events: none;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            animation: mf-fade-in 0.3s ease;
-        }
-        @keyframes mf-fade-in { from { opacity: 0; } to { opacity: 1; } }
-    `;
-    document.documentElement.appendChild(style);
-
-    function detectVideos() {
-        const videos = document.querySelectorAll('video');
-        videos.forEach(video => {
-            if (video.src && !video.dataset.mfDetected) {
-                video.dataset.mfDetected = 'true';
-                // Notifica o background sobre o vídeo direto encontrado
-                chrome.runtime.sendMessage({
-                    cmd: 'onMediaDetected',
-                    url: video.src,
-                    type: 'Video (Direct)',
-                    tabTitle: document.title
-                });
-            }
-        });
+// Discover media from DOM without requiring playback.
+(()=>{
+  const seen=new Set();
+  function send(raw) {
+    if(!raw || raw.startsWith('blob:') || raw.startsWith('data:')) return;
+    let url;
+    try { url=new URL(raw,location.href); } catch { return; }
+    if(!['http:','https:'].includes(url.protocol)||seen.has(url.href))return;
+    if(!/\.(mp4|webm|mov|m4v|m3u8|mpd|mp3|m4a|aac)(?:$|[?#])/i.test(url.href))return;
+    seen.add(url.href);
+    chrome.runtime.sendMessage({cmd:'onMediaDetected',url:url.href,tabTitle:document.title}).catch(()=>{});
+  }
+  function scan(root=document) {
+    if(!root.querySelectorAll)return;
+    const nodes=root.querySelectorAll('video,audio,source,a[href],meta[property="og:video"],meta[property="og:video:url"],meta[name="twitter:player:stream"]');
+    for(const node of nodes) {
+      if(node.matches('a[href]'))send(node.getAttribute('href'));
+      else if(node.matches('meta'))send(node.content);
+      else { send(node.getAttribute('src')); if(node.currentSrc)send(node.currentSrc); }
     }
-
-    // Observa mudanças no DOM para novos vídeos (como em SPAs ou YouTube)
-    const observer = new MutationObserver(() => detectVideos());
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    // Detecção inicial
-    detectVideos();
+  }
+  scan();
+  let timer;
+  const observer=new MutationObserver(()=>{clearTimeout(timer);timer=setTimeout(()=>scan(),250)});
+  observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['src','href','content']});
+  document.addEventListener('loadstart',ev=>{if(ev.target?.currentSrc)send(ev.target.currentSrc)},true);
 })();
