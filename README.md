@@ -1,6 +1,25 @@
-# Media Finder Pro · v1.3.0
+# Media Finder Pro · v1.4.0
 
 Extensão Chrome (Manifest V3) para detectar **vídeos, imagens e áudios**, com interface focada no conteúdo da página.
+
+## Verificação inteligente antes do download (v1.4)
+
+A extensão não considera uma resposta HTTP `video/mp4` como prova de vídeo completo.
+
+1. Registra `Content-Type`, `Content-Length`, `Content-Range` e status HTTP das fontes capturadas.
+2. Ao abrir o popup, verifica automaticamente até duas fontes em destaque. Ao baixar uma fonte direta, sempre confere novamente a disponibilidade (com cache curto).
+3. Faz uma requisição GET limitada a 512 KiB para conferir a resposta real e a assinatura binária do arquivo. HTTP 206 com faixa incompleta, HTML/JSON, links expirados, fMP4 isolado e MP4 de inicialização são bloqueados.
+4. MP4 e WebM com tamanho conhecido de até **96 MiB** são baixados temporariamente no documento offscreen. A extensão confere tamanho, estrutura e metadados de duração antes de salvar. Isso não depende de assistir ao vídeo. Quando a página informa a duração, também identifica arquivos muito mais curtos que o vídeo esperado.
+5. Para vídeos maiores, a extensão usa o Chrome Downloads após o pré-teste e confere o tamanho transferido informado pelo navegador. Essa rota **não comprova reprodução completa** e continua exibindo diagnóstico cauteloso.
+6. Fontes sem tamanho conhecido ou cuja estrutura não pôde ser validada ficam como **não confirmadas**: a extensão não oferece um botão que prometa vídeo completo.
+
+Resultado na interface: **Download provável**, **Resposta 206**, **Fragmento / indisponível**, **Não confirmado** ou **Verificar e baixar**. A verificação evita downloads enganosos mas não recupera automaticamente trechos faltantes.
+
+**YouTube:** costuma disponibilizar áudio e vídeo em fluxos adaptativos separados; o MVP atual não faz o mux desses fluxos e, por isso, não promete download completo. O mesmo vale para DASH/DRM e serviços que exigem sessão/referer indisponíveis na extensão.
+
+### Atualização importante no navegador
+
+A versão carregada pode continuar antiga mesmo depois de atualizar o GitHub. Confira a versão **1.4.0** em `chrome://extensions`. Clique em **Recarregar** na extensão e **recarregue a aba do site**. Se a interface exibir `v1.2.0`, o navegador ainda está usando uma cópia antiga.
 
 ## O que mudou na 1.3
 
@@ -32,7 +51,7 @@ Em uma atualização direta da versão 1.2, a extensão limpa a lista antiga par
 
 ## Limites técnicos
 
-- Downloads diretos dependem de o servidor disponibilizar um URL de arquivo completo e permitir o acesso via navegador. Respostas fragmentadas podem não corresponder ao vídeo completo.
+- Downloads diretos dependem de o servidor disponibilizar um URL de arquivo completo. A validação reduz arquivos quebrados, mas não reconstrói fluxos fragmentados automaticamente.
 - Vídeos com DRM (como Widevine), protegidos por licença ou que não disponibilizem arquivos acessíveis não são suportados.
 - O DASH/MPD é detectado, porém baixar e muxar corretamente áudio e vídeo ainda é uma implementação futura.
 - HLS de transmissões ao vivo, arquivos criptografados, faixas de áudio separadas ou playlists com descontinuidades não é suportado. Fluxos TS são salvos como `.ts`, não falsamente renomeados para `.mp4`.
@@ -50,7 +69,7 @@ Requer Node.js 20+:
 npm test
 ```
 
-Os testes cobrem parsing HLS, reconhecimento de tipos, segurança das extensões, deduplicação de URLs e ordenação dos resultados. A automação está em `.github/workflows/tests.yml`.
+Os testes cobrem parsing HLS, reconhecimento de tipos, segurança das extensões, deduplicação de URLs, ordenação dos resultados, Content-Range, assinaturas de mídia e detecção de MP4 de 1 KB / 313 KB sem dados de vídeo. A automação está em `.github/workflows/tests.yml`.
 
 ## Próximas melhorias
 
