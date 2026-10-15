@@ -187,7 +187,6 @@ function render(){
  scheduleAutoVerify(focus);
 }
 function scheduleAutoVerify(focus){
- clearTimeout(autoTimer);
  const candidates=focus.filter(item=>['Video','Audio','Image'].includes(item.type)&&
   !item.analysis?.checkedAt&&item.status==='ready'&&!verifiedThisOpen.has(item.id)).slice(0,2);
  for(const item of candidates)verifiedThisOpen.add(item.id);
