@@ -1,4 +1,23 @@
-# Media Finder Pro · v1.4.0
+# Media Finder Pro · v1.5.0
+
+## O que mudou na versão 1.5
+
+**Detectar um player não é o mesmo que ter um arquivo para download.** A extensão agora informa as duas situações separadamente:
+
+- **Instagram/Reels:** identifica elementos `<video>` cuja fonte é `blob:`, sem salvar `blob:` ou o endereço da página como falso MP4. Também reconhece páginas `/reel/...` enquanto o player ainda está carregando.
+- **YouTube:** detecta o vídeo atual em páginas de reprodução, inclusive após navegação dinâmica. Um detector somente de leitura consulta os metadados disponíveis na página para mostrar título, duração e quantidades de faixas adaptativas de áudio/vídeo.
+- **Progressivo completo:** quando o player do YouTube disponibiliza uma URL explícita de vídeo **com áudio** e sem exigir decifrar assinaturas, ela é listada separadamente e passa pelas mesmas verificações de download direto existentes.
+- **Fontes fragmentadas/adaptativas:** são informadas como players/faixas detectados, **não como arquivos completos**. Não há tentativa de baixar `blob:`, de juntar faixas sem um muxer ou de contornar DRM.
+- **Miniaturas:** permanecem na aba Imagens e não são apresentadas como se fossem o vídeo.
+- **Interface:** mostra “Vídeo identificado” e a origem do player, e só habilita o download quando existe uma fonte direta elegível.
+
+**Testes:** `npm test` cobre fontes `blob:` e os metadados do YouTube usando cenários simulados. Ainda é necessário validar a extensão instalada nos sites reais, já que seus players mudam frequentemente.
+
+**Atualização:** execute `git pull origin main`, recarregue a extensão em `chrome://extensions` e atualize as abas já abertas. Confira **v1.5.0** no popup. O detector do YouTube usa um content script no contexto da página (`MAIN`) apenas para leitura de metadados; nenhum dado é enviado a servidores externos pela extensão.
+
+**Limite atual:** reconhecer o player do YouTube ou do Instagram não garante conseguir baixar o vídeo. Quando o site oferece apenas DASH/MSE ou faixas separadas, falta implementar um muxer/gerenciador de stream para produzir arquivos completos.
+
+---
 
 Extensão Chrome (Manifest V3) para detectar **vídeos, imagens e áudios**, com interface focada no conteúdo da página.
 
