@@ -7,6 +7,20 @@ export function parseRange(value) {
  if(total!==null&&(!Number.isSafeInteger(total)||end>=total))return null;
  return {start,end,total,partial:start>0||(total!==null&&end<total-1)};
 }
+function mp4Atoms(bytes){
+ const types=[];
+ let offset=0;
+ for(let count=0;count<200&&offset+8<=bytes.length;count++){
+  const n=(bytes[offset]*16777216+bytes[offset+1]*65536+bytes[offset+2]*256+bytes[offset+3]);
+  const type=String.fromCharCode(...bytes.subarray(offset+4,offset+8));
+  if(!/^[A-Za-z0-9 ]{4}$/.test(type)||n<8)break;
+  types.push(type);
+  if(n>bytes.length-offset)break;
+  offset+=n;
+ }
+ return types;
+}
+
 export function validateProbe(status,headers,bytes,type,ext){
  const header=n=>headers.get?headers.get(n):headers[n]||null;
  const range=parseRange(header('content-range'));
@@ -22,7 +36,8 @@ export function validateProbe(status,headers,bytes,type,ext){
  if(length!==null&&length<small){result.state='partial';result.reason='Resposta pequena demais: '+length+' bytes.';return result;}
  const str=(at,n)=>String.fromCharCode(...bytes.subarray(at,at+n));
  const mp4=bytes.length>=12&&str(4,4)==='ftyp';
- const partialMp4=bytes.length>=8&&['styp','moof'].includes(str(4,4));
+ const atoms=mp4?mp4Atoms(bytes):[];
+ const partialMp4=bytes.length>=8&&(['styp','moof'].includes(str(4,4))||(!mp4&&atoms.includes('moof')));
  const ebml=bytes.length>=4&&[0x1a,0x45,0xdf,0xa3].every((n,i)=>bytes[i]===n);
  const image=bytes.length>=12&&(
   (bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff)||
@@ -34,8 +49,16 @@ export function validateProbe(status,headers,bytes,type,ext){
  const valid=type==='Video'?(ext==='webm'?ebml:(mp4||ebml)&&!partialMp4):type==='Image'?image:audio;
  if(!valid){result.reason=partialMp4?'Fonte fMP4 segmentada, não arquivo completo.':'Cabeçalho incompatível com mídia completa.';return result;}
  // A tiny ftyp/moov initialization box is not an entire playable video.
- if(type==='Video'&&mp4&&length!==null&&length<65536){
-  result.state='partial';result.reason='MP4 pequeno, possivelmente apenas inicialização.';return result;
+ if(type==='Video'&&mp4){
+  if(length!==null&&length<65536){
+   result.state='partial';result.reason='MP4 pequeno, possivelmente apenas inicialização.';return result;
+  }
+  if(length!==null&&bytes.length>=length&&(!atoms.includes('mdat')||!atoms.includes('moov'))){
+   result.state='partial';result.reason='MP4 inspecionado sem átomos completos de vídeo (moov + mdat).';return result;
+  }
+  if(!atoms.includes('mdat')&&atoms.includes('moov')){
+   result.state='uncertain';result.reason='MP4 com índice de inicialização, mas sem dados de vídeo confirmados.';return result;
+  }
  }
  if(length===null&&(!range||range.total===null)){
   result.state='uncertain';result.reason='Cabeçalho válido, porém o tamanho do arquivo não é conhecido.';return result;
