@@ -3,6 +3,25 @@ import { StreamDownloader } from './hls-downloader.js';
 const jobs = new Map();
 const emit = (tabId, patch) => chrome.runtime.sendMessage({cmd:'jobUpdate',tabId,patch}).catch(() => {});
 
+function releaseWhenChromeFinishes(downloadId, blobUrl) {
+ let released=false;
+ const cleanup=()=>{
+  if(released)return;
+  released=true;
+  chrome.downloads.onChanged.removeListener(onChanged);
+  clearTimeout(timeout);
+  URL.revokeObjectURL(blobUrl);
+ };
+ const onChanged=delta=>{
+  if(delta.id===downloadId && ['complete','interrupted'].includes(delta.state?.current))cleanup();
+ };
+ const timeout=setTimeout(cleanup,30*60*1000);
+ chrome.downloads.onChanged.addListener(onChanged);
+ chrome.downloads.search({id:downloadId}).then(([item])=>{
+  if(item && ['complete','interrupted'].includes(item.state))cleanup();
+ }).catch(()=>{});
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.cmd === 'cancelJob') {
     jobs.get(message.id)?.cancel();
@@ -30,9 +49,17 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         const downloadId = await chrome.downloads.download({
           url,filename:`MediaFinder/${safe || 'video'}.${result.extension}`,saveAs:false,conflictAction:'uniquify'
         });
-        emit(message.tabId,{id:message.id,status:'done',progress:100,message:`Transferido ao Chrome (#${downloadId}).`});
-      } finally {
-        setTimeout(()=>URL.revokeObjectURL(url),120000);
+        releaseWhenChromeFinishes(downloadId,url);
+        await emit(message.tabId,{id:message.id,status:'downloading',progress:99,downloadId,
+          message:'Salvando arquivo no gerenciador do Chrome...'});
+        const [entry]=await chrome.downloads.search({id:downloadId});
+        if(entry?.state==='complete')await emit(message.tabId,{id:message.id,status:'done',progress:100,
+          message:'Arquivo salvo na pasta Downloads.'});
+        else if(entry?.state==='interrupted')await emit(message.tabId,{id:message.id,status:'error',
+          message:'Transferência interrompida pelo navegador.'});
+      } catch(error) {
+        URL.revokeObjectURL(url);
+        throw error;
       }
     } catch (error) {
       emit(message.tabId,{id:message.id,status:job.controller.signal.aborted?'canceled':'error',message:error.message||String(error)});
