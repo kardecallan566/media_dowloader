@@ -1,11 +1,12 @@
 import { normalizedUrl, mediaType, mediaKey, shouldIgnoreNetwork, ranking, fileExtension } from './media-utils.js';
+import { validateProbe, parseRange } from './download-check.js';
 
 const STORE='mediaStore';
 let operations=Promise.resolve();
 const serial=(work)=>{const task=operations.then(work);operations=task.catch(()=>{});return task;};
 const validTab=id=>Number.isInteger(id)&&id>=0;
 const clean=s=>String(s||'').replace(/[\u0000-\u001f]/g,' ').trim().slice(0,160);
-const running=s=>['running','downloading','saving'].includes(s);
+const running=s=>['checking','running','downloading','saving'].includes(s);
 
 async function updateBadge(tabId,list) {
  if(!validTab(tabId))return;
@@ -44,6 +45,12 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
    let found=indexed.get(identity)||list.find(i=>i.url===url);
    const visible=source==='page'&&input.visible===true;
    if(found){
+    if(source==='network'&&input.responseStatus&&found.responseStatus!==input.responseStatus){
+     found.responseStatus=input.responseStatus;
+     found.responseRange=clean(input.contentRange);
+     found.responseLength=Number(input.contentLength)||null;
+     changed=true;
+    }
     if(source==='page'&&(found.source!=='page'||found.visible!==visible||found.frameId!==frameId)){
      found.source='page';found.visible=visible;found.frameId=frameId;
      found.thumbnail=normalizedUrl(input.thumbnail)||found.thumbnail;
@@ -63,7 +70,9 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
     thumbnail:normalizedUrl(input.thumbnail)||null,
     duration:Number.isFinite(input.duration)&&input.duration>0?Math.round(input.duration):null,
     width:Number(input.width)||null,height:Number(input.height)||null,
-    time:new Date().toISOString(),status:'ready',progress:0,message:''
+    responseStatus:input.responseStatus||null,responseRange:clean(input.contentRange),
+    responseLength:Number(input.contentLength)||null,
+    time:new Date().toISOString(),status:'ready',progress:0,message:'',analysis:null
    };
    list.push(item);indexed.set(identity,item);changed=true;
   }
@@ -83,7 +92,7 @@ async function patchMedia(tabId,id,patch) {
   const {mediaStore={}}=await chrome.storage.local.get(STORE);
   const item=(mediaStore[String(tabId)]||[]).find(i=>i.id===id);
   if(!item)return;
-  for(const key of ['status','progress','message','downloadId'])if(patch[key]!==undefined)item[key]=patch[key];
+  for(const key of ['status','progress','message','downloadId','analysis'])if(patch[key]!==undefined)item[key]=patch[key];
   await chrome.storage.local.set({mediaStore});
  });
 }
@@ -106,17 +115,88 @@ function filename(item){
  const base=(item.label||item.tabTitle||'Midia').normalize('NFKD').replace(/[^a-zA-Z0-9_-]+/g,'_').slice(0,70)||'Midia';
  return `MediaFinder/${base}_${item.id.slice(0,6)}.${ext}`;
 }
+
+// Read at most 512 KiB and cancel the response stream: never download a full large video just to inspect it.
+async function verifyFile(item){
+ if(item.type==='DASH')return {state:'blocked',canDownload:false,reason:'DASH com áudio/vídeo separados ainda não possui muxer.'};
+ if(item.type==='HLS')return {state:'uncertain',canDownload:true,reason:'HLS VOD será conferido pelo analisador de playlist antes de baixar.'};
+ const cached=item.analysis;
+ if(cached&&cached.checkedAt&&Date.now()-cached.checkedAt<90_000)return cached;
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),14000);
+ let result;
+ try {
+  const response=await fetch(item.url,{
+   method:'GET',credentials:'include',redirect:'follow',cache:'no-store',signal:controller.signal
+  });
+  const reader=response.body?.getReader();
+  if(!reader)throw new Error('Servidor não retornou um corpo de resposta.');
+  const chunks=[];let bytesRead=0;
+  try{
+   while(bytesRead<524288){
+    const {done,value}=await reader.read();
+    if(done)break;
+    const slice=value.subarray(0,524288-bytesRead);
+    chunks.push(slice);bytesRead+=slice.length;
+   }
+  }finally{await reader.cancel().catch(()=>{});}
+  const bytes=new Uint8Array(bytesRead);
+  let p=0;for(const chunk of chunks){bytes.set(chunk,p);p+=chunk.length;}
+  const type=item.type,ext=fileExtension(item);
+  result=validateProbe(response.status,response.headers,bytes,type,ext);
+  result.checkedAt=Date.now();
+  result.checkedBytes=bytesRead;
+  if(response.redirected&&new URL(response.url).origin!==new URL(item.url).origin){
+   // Redirects are accepted only if they resolve to real media, validated above.
+   result.redirected=true;
+  }
+ }catch(error){
+  result={state:'unavailable',canDownload:false,
+   reason:error.name==='AbortError'?'Tempo esgotado ao verificar a mídia.':'Não foi possível verificar a fonte: '+error.message,
+   checkedAt:Date.now()};
+ }finally{clearTimeout(timeout);}
+ return result;
+}
+async function verifyAndSave(tabId,id){
+ const item=await getItem(tabId,id);
+ if(!item)throw new Error('Mídia não encontrada.');
+ if(running(item.status))return {ok:false,error:'O arquivo já está sendo processado.'};
+ await patchMedia(tabId,id,{status:'checking',message:'Verificando se a URL oferece mídia completa...'});
+ const analysis=await verifyFile(item);
+ await patchMedia(tabId,id,{analysis,status:analysis.canDownload?'ready':'blocked',message:analysis.reason});
+ return {ok:true,analysis};
+}
+
 async function startDownload(tabId,id){
  const item=await getItem(tabId,id);
  if(!item)throw new Error('Arquivo não encontrado nesta aba.');
  if(running(item.status))throw new Error('Este arquivo já está sendo baixado.');
  if(item.type==='DASH')throw new Error('DASH exige montagem de áudio/vídeo e ainda não está disponível.');
  if(item.type!=='HLS'){
-  const downloadId=await chrome.downloads.download({url:item.url,filename:filename(item),saveAs:false,conflictAction:'uniquify'});
-  await patchMedia(tabId,id,{status:'downloading',progress:0,message:'Baixando pelo Chrome...',downloadId});
+  await patchMedia(tabId,id,{status:'checking',message:'Conferindo cabeçalho, tamanho e integridade inicial...'});
+  const analysis=await verifyFile(item);
+  if(!analysis.canDownload){
+   await patchMedia(tabId,id,{analysis,status:'blocked',message:analysis.reason});
+   throw new Error(analysis.reason);
+  }
+  await patchMedia(tabId,id,{analysis,status:'ready',message:analysis.reason});
+  let downloadId;
+  try {
+   downloadId=await chrome.downloads.download({url:item.url,filename:filename(item),saveAs:false,conflictAction:'uniquify'});
+  }catch(err){
+   await patchMedia(tabId,id,{status:'error',message:'O Chrome não conseguiu iniciar o download: '+err.message});
+   throw err;
+  }
+  await patchMedia(tabId,id,{status:'downloading',progress:0,message:'Baixando pelo Chrome (fonte verificada)...',downloadId});
   // Handle downloads that finished before the persistence step.
   const [entry]=await chrome.downloads.search({id:downloadId});
-  if(entry?.state==='complete')await patchMedia(tabId,id,{status:'done',progress:100,message:'Arquivo salvo na pasta Downloads.'});
+  if(entry?.state==='complete'){
+   const size=entry.fileSize||entry.bytesReceived||0;
+   const mismatch=analysis.size&&size&&size!==analysis.size;
+   await patchMedia(tabId,id,mismatch?
+     {status:'error',message:'Arquivo salvo com tamanho divergente ('+size+' versus '+analysis.size+' bytes). Pode ser parcial.'}:
+     {status:'done',progress:100,message:'Download concluído. Confira a reprodução do arquivo.'});
+  }
   else if(entry?.state==='interrupted')await patchMedia(tabId,id,{status:'error',message:'Download interrompido pelo navegador.'});
   return {ok:true};
  }
@@ -144,11 +224,15 @@ async function cancelDownload(tabId,id){
 chrome.webRequest.onHeadersReceived.addListener(details=>{
  if(!validTab(details.tabId))return;
  const headers=details.responseHeaders||[];
- const mime=headers.find(h=>h.name.toLowerCase()==='content-type')?.value||'';
+ const header=name=>headers.find(h=>h.name.toLowerCase()===name)?.value||'';
+ const mime=header('content-type');
  const type=mediaType(details.url,mime);
  if(shouldIgnoreNetwork(details.url,type))return;
  // Ignore preview/partial requests when clearly segments; keep full progressive MP4.
- saveCandidates(details.tabId,[{url:details.url,contentType:mime}], 'network').catch(console.warn);
+ saveCandidates(details.tabId,[{
+   url:details.url,contentType:mime,responseStatus:details.statusCode,
+   contentRange:header('content-range'),contentLength:header('content-length')
+ }], 'network').catch(console.warn);
 },{urls:['<all_urls>']},['responseHeaders']);
 
 chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
@@ -165,6 +249,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   }
   if(msg.cmd==='clearMediaForTab'){await clearTab(msg.tabId);return {ok:true};}
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
+  if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id);
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
@@ -179,7 +264,14 @@ chrome.downloads.onChanged.addListener(async delta=>{
   for(const list of Object.values(mediaStore))for(const item of list){
    if(item.downloadId!==delta.id)continue;
    if(delta.state.current==='complete'){
-    Object.assign(item,{status:'done',progress:100,message:'Arquivo salvo na pasta Downloads.'});
+    // A completed Chrome transfer is not proof that the server sent the entire media.
+    const expected=item.analysis?.size;
+    const [file]=await chrome.downloads.search({id:delta.id});
+    const received=file?.fileSize||file?.bytesReceived||null;
+    const mismatch=expected&&received&&expected!==received;
+    Object.assign(item,mismatch?
+      {status:'error',message:'Tamanho do arquivo diferente do esperado ('+received+'/'+expected+' bytes). Possível fragmento.'}:
+      {status:'done',progress:100,message:'Transferência concluída. Verifique a reprodução.'});
    }else if(delta.state.current==='interrupted'&&item.status!=='canceled'){
     Object.assign(item,{status:'error',message:'Transferência interrompida.'});
    }
