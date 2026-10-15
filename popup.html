@@ -1,273 +1,89 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-
+<!doctype html>
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Media Finder Pro</title>
-    
-    <style>
-        :root {
-            --primary: #8b5cf6;
-            --primary-hover: #7c3aed;
-            --secondary: #06b6d4;
-            --bg-dark: #020617;
-            --card-bg: #0f172a;
-            --text-main: #f8fafc;
-            --text-dim: #94a3b8;
-            --border: #1e293b;
-            --success: #22c55e;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            cursor: default;
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-main);
-            width: 400px;
-            min-height: 500px;
-            padding: 16px;
-            overflow-x: hidden;
-        }
-
-        /* Scrollbar charmosa */
-        ::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--primary);
-            border-radius: 10px;
-        }
-
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .logo h1 {
-            font-size: 20px;
-            font-weight: 800;
-            background: linear-gradient(to right, #a78bfa, #06b6d4);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -0.5px;
-        }
-
-        .controls {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-circle {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            border: 1px solid var(--border);
-            background: var(--card-bg);
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .btn-circle:hover {
-            background: var(--primary);
-            border-color: var(--primary);
-            transform: scale(1.05);
-        }
-
-        #list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .media-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(8px);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 12px;
-            transition: transform 0.2s, box-shadow 0.2s;
-            animation: fadeIn 0.3s ease-out;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .media-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            border-color: rgba(99, 102, 241, 0.4);
-        }
-
-        .media-info {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-bottom: 12px;
-        }
-
-        .media-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-main);
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .media-meta {
-            font-size: 11px;
-            color: var(--text-dim);
-            display: flex;
-            gap: 8px;
-        }
-
-        .tag {
-            padding: 2px 6px;
-            border-radius: 4px;
-            background: rgba(255, 255, 255, 0.05);
-            font-weight: 500;
-            text-transform: uppercase;
-        }
-
-        .tag.video {
-            color: #818cf8;
-        }
-
-        .tag.audio {
-            color: #fbbf24;
-        }
-
-        .tag.stream {
-            color: #f472b6;
-        }
-
-        .media-url {
-            font-size: 10px;
-            color: var(--text-dim);
-            font-family: monospace;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            background: rgba(0, 0, 0, 0.2);
-            padding: 4px;
-            border-radius: 4px;
-            user-select: all;
-            cursor: text;
-        }
-
-        .actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-action {
-            flex: 1;
-            padding: 8px;
-            border-radius: 8px;
-            border: none;
-            background: #27272a;
-            color: #fff;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            text-align: center;
-            text-decoration: none;
-            transition: all 0.2s;
-        }
-
-        .btn-action:hover {
-            background: #3f3f46;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), #818cf8);
-        }
-
-        .btn-primary:hover {
-            background: linear-gradient(135deg, var(--primary-hover), var(--primary));
-            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
-        }
-
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 300px;
-            text-align: center;
-            color: var(--text-dim);
-        }
-
-        .empty-state svg {
-            width: 48px;
-            height: 48px;
-            margin-bottom: 16px;
-            opacity: 0.5;
-        }
-
-        .footer {
-            margin-top: auto;
-            padding-top: 20px;
-            font-size: 11px;
-            text-align: center;
-            color: var(--text-dim);
-            opacity: 0.7;
-        }
-    .media-card progress{accent-color:#8b5cf6;height:9px;margin:4px 0 10px}.btn-action:disabled{opacity:.55;cursor:not-allowed}</style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Media Finder Pro</title>
+<style>
+:root{color-scheme:dark;--bg:#090d19;--panel:#111829;--line:#273248;--text:#f5f7ff;--muted:#96a4bc;--accent:#8b70fb;--accent2:#c7baff;--green:#34d399}
+*{box-sizing:border-box}
+body{width:420px;min-height:360px;max-height:640px;margin:0;overflow-y:auto;background:var(--bg);color:var(--text);font:13px/1.45 system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+button,summary{cursor:pointer;font:inherit}
+button:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,summary:focus-visible{outline:2px solid var(--accent2);outline-offset:3px}
+.app{padding:17px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-mark{width:39px;height:39px;border-radius:13px;background:linear-gradient(135deg,#7c3aed,#4f8df9);display:grid;place-items:center;color:#fff;font-size:20px;box-shadow:0 4px 18px #6137d733}
+.brand-name{font-size:17px;font-weight:800;letter-spacing:-.55px;line-height:1.2}
+.brand-sub{color:var(--muted);font-size:10px;margin-top:2px}
+.header-actions{display:flex;gap:6px}
+.icon-btn{width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--line);border-radius:10px;background:#151d30;color:#cdd7ee;font-size:15px}
+.icon-btn:hover{background:#222c46}
+.page-banner{padding:11px 12px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(130deg,#192038,#121a2d);display:flex;align-items:center;gap:11px}
+.page-avatar{background:#2d3655;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-weight:800;color:#d8ccff}
+.page-info{min-width:0;flex:1}
+.page-name{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.page-desc{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tiny-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:16px 0 12px;padding:5px;border-radius:13px;background:#131b2d}
+.tab{border:0;background:transparent;border-radius:10px;color:#a8b6d0;padding:10px 6px;font-size:12px;font-weight:700}
+.tab.active{color:#fff;background:#34305c;box-shadow:0 2px 8px #0002}
+.tab .count{font-weight:700;color:#d8cfff;margin-left:3px}
+.section-heading{display:flex;align-items:center;justify-content:space-between;margin:13px 1px 9px;gap:10px}
+.section-title{font-size:12px;font-weight:800;color:#e8edfd}
+.section-hint{font-size:10px;color:var(--muted)}
+.media-list{display:flex;flex-direction:column;gap:8px}
+.media-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:11px}
+.media-line{display:flex;gap:11px;align-items:center}
+.preview{width:79px;height:74px;flex:0 0 79px;border-radius:10px;background:#222d44;overflow:hidden;display:grid;place-items:center;color:#cbbfff;font-size:25px}
+.preview img{width:100%;height:100%;object-fit:cover;display:block}
+.media-main{flex:1;min-width:0}
+.media-title{font-weight:750;font-size:13px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.media-sub{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:7px}
+.chip{font-size:10px;border-radius:6px;padding:2px 6px;background:#232e45;color:#c7d2ea}
+.chip.primary{background:#302756;color:#cbbcff}
+.media-host{margin-top:5px;color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.media-actions{margin-top:10px;display:flex;gap:8px}
+.download-btn{flex:1;border:0;border-radius:9px;padding:9px 12px;color:#fff;font-weight:800;background:linear-gradient(120deg,#815ef9,#717efb)}
+.download-btn:hover:not(:disabled){filter:brightness(1.1)}
+.cancel-btn{border:1px solid #42374b;color:#f7b3c0;background:#241b2b;border-radius:9px;padding:8px 12px}
+.state{font-size:11px;color:#a8b7d2;margin-top:9px}
+.state.error{color:#fca5a5}
+.track{height:5px;border-radius:8px;background:#2a3450;overflow:hidden;margin-top:7px}
+.fill{height:100%;background:linear-gradient(90deg,#8b5cf6,#38bdf8);transition:width .2s}
+details{margin-top:7px;color:#8794ad;font-size:10px}
+details summary{list-style:none;width:max-content}
+details summary:hover{color:#e2dcff}
+details .raw-url{margin-top:6px;word-break:break-all;font-family:monospace;color:#a0b4d5;max-height:90px;overflow:auto}
+.more-btn{display:block;width:100%;padding:10px;margin-top:10px;background:#151e31;border:1px dashed #3d4860;color:#c5ceea;border-radius:11px;font-weight:750}
+.more-btn:hover{background:#202b43}
+.empty{text-align:center;background:#11192a;border:1px dashed #344059;border-radius:15px;padding:28px 22px;margin-top:10px}
+.empty-icon{font-size:29px;margin-bottom:9px}
+.empty strong{display:block;font-size:14px;margin-bottom:6px}
+.empty p{margin:0;color:var(--muted);font-size:12px}
+.notice{font-size:11px;color:#93a2c0;margin-top:12px;line-height:1.55}
+.footer{border-top:1px solid var(--line);margin-top:14px;padding-top:12px;display:flex;justify-content:space-between;align-items:center;color:#667993;font-size:10px}
+#toast{display:none;background:#402236;border:1px solid #874464;color:#ffd5de;padding:10px;border-radius:10px;margin-top:12px;font-size:11px}
+#toast:not(:empty){display:block}
+</style>
 </head>
-
 <body>
-    <header>
-        <div class="logo">
-            <h1>Media Finder Pro 🎥</h1>
-        </div>
-        <div class="controls">
-            <button id="refresh" class="btn-circle" title="Atualizar">🔄</button>
-            <button id="clear" class="btn-circle" title="Limpar">🗑️</button>
-        </div>
-    </header>
-
-    <div id="list">
-        <!-- Itens serão inseridos aqui -->
-    </div>
-
-    <div class="footer">
-        Desenvolvido para alta performance &bull; v1.2.0 🚀
-    </div>
-
-    <script type="module" src="popup.js"></script>
+<div class="app">
+ <header>
+  <div class="brand"><div class="brand-mark" aria-hidden="true">▶</div><div><div class="brand-name">Media Finder <span style="color:#afa0ff">Pro</span></div><div class="brand-sub">Suas mídias, sem complicação</div></div></div>
+  <div class="header-actions"><button id="refresh" class="icon-btn" title="Atualizar mídias" aria-label="Atualizar">↻</button><button id="clear" class="icon-btn" title="Limpar lista e procurar novamente" aria-label="Limpar">⌫</button></div>
+ </header>
+ <div class="page-banner"><div class="page-avatar" id="pageInitial">🌐</div><div class="page-info"><div id="pageTitle" class="page-name">Página atual</div><div id="pageAddress" class="page-desc">Detectando arquivos disponíveis...</div></div><span class="tiny-dot" title="Detecção ativa"></span></div>
+ <nav class="tabs" aria-label="Tipo de mídia">
+  <button type="button" class="tab active" data-kind="video">▶ Vídeos <span class="count" id="videoCount"></span></button>
+  <button type="button" class="tab" data-kind="image">▧ Imagens <span class="count" id="imageCount"></span></button>
+  <button type="button" class="tab" data-kind="audio">♫ Áudios <span class="count" id="audioCount"></span></button>
+ </nav>
+ <div id="list"></div>
+ <div id="toast" role="alert"></div>
+ <div class="footer"><span>Media Finder Pro · v1.3.0</span><span>Arquivos sem DRM</span></div>
+</div>
+<script type="module" src="popup.js"></script>
 </body>
-
 </html>
