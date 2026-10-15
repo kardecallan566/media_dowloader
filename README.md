@@ -1,25 +1,34 @@
-# Media Finder Pro 🎥
+# Media Finder Pro v1.2.0
 
-Extensão de navegador profissional para detecção e download de mídias, inspirada no Video DownloadHelper, mas otimizada para a web moderna.
+Extensão Chrome Manifest V3 para detectar e baixar mídias de páginas acessíveis, sem DRM.
 
-## ✨ Funcionalidades
-- **Download Direto de HLS (m3u8)**: Baixa todos os segmentos automaticamente e os une em um arquivo MP4 único.
-- **Detecção Inteligente**: Intercepta requisições de rede para encontrar vídeos que não aparecem no DOM.
-- **Download Paralelo**: Motor multi-thread para downloads de segmentos 5x mais rápidos.
-- **Interface Premium**: Design escuro moderno com barras de progresso em tempo real.
-- **Sem Gravação de Tela**: Diferente de outras extensões, o download é feito via stream de dados, preservando 100% da qualidade original.
+## Implementado
+- Detecção por requisições, fontes HTML, links e metadados.
+- Download direto de vídeo e áudio pelo gerenciador Chrome.
+- HLS VOD: leitura do manifesto, escolha automática da variante de maior bitrate e download independente da reprodução.
+- Suporte a EXT-X-MAP e BYTERANGE; segmentos baixados em ordem com tentativas e progresso.
+- Download HLS no documento offscreen, sem depender do popup aberto.
+- Preservação de MPEG-TS como .ts, sem MP4 falso; erros quando a playlist não pode ser montada.
+- Limite de 450 MiB por transferência HLS para evitar esgotamento de memória.
 
-## 🚀 Como usar
-1. Navegue até um site com vídeo (ex: YouTube, sites de streaming).
-2. Dê "Play" no vídeo para que a extensão capture o manifesto.
-3. Clique no ícone da extensão e escolha "Baixar Completo".
-4. O arquivo será processado e salvo na sua pasta de Downloads.
+## Limitações
+- DASH detectado, mas ainda não baixado. Requer muxer.
+- HLS com áudio separado, criptografia, descontinuidades ou playlist live não é suportado.
+- Alguns sites só expõem a URL do manifesto após Play. Não é possível garantir suporte universal.
+- DRM, fontes blob sem URL recuperável e conteúdo protegido não são suportados.
+- TS pode precisar de remux externo para MP4.
+- Arquivos grandes acima de 450 MiB e downloads interrompidos por reinício do navegador requerem arquitetura de streaming.
 
-## 🛠️ Tecnologias
-- **JavaScript (ES6+)**
-- **Chrome Extension API (Manifest v3)**
-- **HLS Segment Merging Engine**
-- **CSS Grid/Flexbox Moderno**
+## Instalação
+1. Abra chrome://extensions e ative o modo do desenvolvedor.
+2. Escolha Carregar sem compactação e selecione a pasta do projeto.
+3. Recarregue a aba com o vídeo, abra o popup e clique em Baixar vídeo.
+4. Veja erros no service worker pela página de extensões.
 
----
-Desenvolvido para ser a ferramenta definitiva de download de mídia.
+Baixe apenas conteúdos que você tem permissão para obter.
+
+## Próximos passos
+- Muxer integrado de HLS TS/fMP4 e áudio separado.
+- DASH SegmentTemplate/SegmentTimeline com mux.
+- Streaming para disco e fila persistente.
+- Testes automatizados de manifesto e downloads.
