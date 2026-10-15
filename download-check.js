@@ -67,3 +67,15 @@ export function validateProbe(status,headers,bytes,type,ext){
  result.reason='Arquivo direto com assinatura válida e tamanho plausível. A integridade final ainda deve ser verificada.';
  return result;
 }
+
+export function validateCompleteVideo(bytes,ext){
+ if(!bytes||bytes.byteLength<16384)return {ok:false,reason:'O arquivo completo contém menos de 16 KB.'};
+ if(ext==='webm'){
+  const good=bytes[0]===0x1a&&bytes[1]===0x45&&bytes[2]===0xdf&&bytes[3]===0xa3;
+  return {ok:good,reason:good?'':'WebM sem cabeçalho EBML.'};
+ }
+ if(!['mp4','m4v','mov'].includes(ext))return {ok:false,reason:'Este formato requer outro validador.'};
+ const atoms=mp4Atoms(bytes);
+ const good=atoms.includes('ftyp')&&atoms.includes('moov')&&atoms.includes('mdat');
+ return {ok:good,reason:good?'':'O arquivo não contém cabeçalho, índice e dados MP4 completos (ftyp/moov/mdat).'};
+}
