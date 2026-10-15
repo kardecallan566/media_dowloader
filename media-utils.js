@@ -28,11 +28,14 @@ export function mediaType(raw, mime='') {
  return null;
 }
 export function group(type){return ['HLS','DASH','Video'].includes(type)?'video':type==='Audio'?'audio':type==='Image'?'image':null;}
-const STRIP=new Set(['expires','expire','exp','token','signature','sig','policy','key-pair-id','x-amz-signature','x-amz-date','x-amz-credential','x-amz-security-token','x-amz-expires']);
+const STRIP=new Set(['expires','expire','exp','token','signature','sig','policy','key-pair-id','x-amz-signature','x-amz-date','x-amz-credential','x-amz-security-token','x-amz-expires','oh','oe','ccb']);
 export function mediaKey(url,type) {
  const u=new URL(url);
  // Query values such as "id" or "url" can identify different files and must remain.
- for(const key of [...u.searchParams.keys()])if(STRIP.has(key.toLowerCase()))u.searchParams.delete(key);
+ for(const key of [...u.searchParams.keys()]){
+  const k=key.toLowerCase();
+  if(STRIP.has(k)||k.startsWith('_nc_'))u.searchParams.delete(key);
+ }
  u.hash='';
  // Instagram CDN hostnames vary by edge; keep the complete asset path.
  const host=/(^|\.)cdninstagram\.com$/.test(u.hostname)?'cdninstagram.com':u.hostname;
@@ -50,7 +53,7 @@ export function shouldIgnoreNetwork(url,type) {
  if(!type||type==='Image')return true; // DOM-only images: network thumbnails cause huge noise.
  const u=new URL(url);
  if(/\.(ts|m4s|cmfv|cmfa|m4f|vtt|srt)$/i.test(u.pathname))return true;
- if(u.searchParams.has('range')||u.searchParams.has('bytes'))return true;
+ if(['range','bytes','bytestart','byteend','startbyte','endbyte'].some(key=>u.searchParams.has(key)))return true;
  return false;
 }
 export function ranking(item) {
