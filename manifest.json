@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Encontre vídeos, imagens e áudios na página e baixe mídias disponíveis sem DRM.",
-  "version": "1.3.0",
+  "description": "Identifica mídias, verifica arquivos completos e evita downloads de fragmentos MP4.",
+  "version": "1.4.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
