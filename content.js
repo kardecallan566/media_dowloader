@@ -88,7 +88,8 @@
   // Instagram reels and Shorts may not mount an HTMLVideoElement until playback starts.
   const instagram=/(^|\.)instagram\.com$/.test(location.hostname);
   if(instagram && /^\/reel\/[^/]+/.test(location.pathname) &&
-     ![...data.values()].some(x=>x.type==='Player'||x.contentType?.startsWith('video/'))){
+     ![...data.values()].some(x=>x.type==='Player'||x.contentType?.startsWith('video/')||
+      /\.(mp4|m4v|webm|mov)(?:[?#]|$)/i.test(x.url||''))){
    player(data,{playerId:'instagram-reel',label:document.title||'Instagram Reel',
     thumbnail:poster,engine:'Instagram Reel',playback:false,
     note:'Página de Reel identificada. O vídeo ainda não revelou sua fonte de download.'});
@@ -105,7 +106,14 @@
    'meta[property="og:video:secure_url"]','meta[name="twitter:player:stream"]',
    'meta[property="og:audio"]','meta[property="og:image"]']){
    const meta=document.querySelector(selector);
-   if(meta?.content)put(data,meta.content,{visible:false,label:document.title});
+   if(!meta?.content)continue;
+   const raw=http(meta.content);
+   const hostname=raw?new URL(raw).hostname:'';
+   // Some Instagram OpenGraph videos use opaque CDN paths without .mp4.
+   // Only treat that CDN metadata as a candidate; the HTTP verifier must still approve it.
+   const cdnVideo=selector.includes('og:video')&&
+      (hostname.endsWith('.cdninstagram.com')||hostname.endsWith('.fbcdn.net'));
+   put(data,raw,{visible:false,label:document.title,contentType:cdnVideo?'video/mp4':''});
   }
   const items=[...data.values()].slice(0,42);
   const signature=JSON.stringify(items.map(x=>[x.url,x.type,x.playerId,x.visible,x.engine,x.duration,x.trackVideo,x.trackAudio]));
