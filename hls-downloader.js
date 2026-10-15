@@ -1,175 +1,211 @@
-/**
- * StreamDownloader - Senior Architecture
- * Robust HLS/DASH downloading with advanced parsing and error recovery.
- */
+// HLS playlist parser/downloader. No transcoding, DRM bypass or fake MP4 conversion.
+export function absoluteUrl(value, base) {
+  const url = new URL(value, base);
+  if (!['https:', 'http:'].includes(url.protocol)) throw new Error('URL de mídia inválida.');
+  return url.href;
+}
+
+export function attributes(line) {
+  const attrs = {};
+  const expression = /([A-Z0-9-]+)=("(?:[^"]*)"|[^,]*)/g;
+  let match;
+  while ((match = expression.exec(line)) !== null) {
+    attrs[match[1]] = match[2].replace(/^"|"$/g, '');
+  }
+  return attrs;
+}
+
+export function parseMaster(text, url) {
+  const lines = text.split(/\r?\n/).map(line => line.trim());
+  const audioGroups = new Map();
+  for (const line of lines) {
+    if (!line.startsWith('#EXT-X-MEDIA:')) continue;
+    const a = attributes(line);
+    if (a.TYPE === 'AUDIO' && a['GROUP-ID'] && a.URI) {
+      audioGroups.set(a['GROUP-ID'], absoluteUrl(a.URI, url));
+    }
+  }
+  const variants = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('#EXT-X-STREAM-INF:')) continue;
+    const a = attributes(lines[i]);
+    const next = lines.slice(i + 1).find(candidate => candidate && !candidate.startsWith('#'));
+    if (!next) continue;
+    variants.push({
+      url: absoluteUrl(next, url),
+      resolution: a.RESOLUTION || 'Automática',
+      bandwidth: Number(a['AVERAGE-BANDWIDTH'] || a.BANDWIDTH || 0),
+      separateAudio: audioGroups.get(a.AUDIO) || null
+    });
+  }
+  return variants.sort((a, b) => b.bandwidth - a.bandwidth);
+}
+
+function rangeSpec(spec, priorEnd) {
+  if (!spec) return { range: null, nextOffset: priorEnd };
+  const [lengthText, offsetText] = spec.split('@');
+  const length = Number(lengthText);
+  const offset = offsetText === undefined ? priorEnd : Number(offsetText);
+  if (!Number.isSafeInteger(length) || length < 1 || !Number.isSafeInteger(offset) || offset < 0) {
+    throw new Error('BYTERANGE inválido.');
+  }
+  return { range: [offset, offset + length - 1], nextOffset: offset + length };
+}
+
+export function parseMedia(text, url) {
+  if (!text.trimStart().startsWith('#EXTM3U')) throw new Error('O servidor não retornou uma playlist HLS.');
+  const lines = text.split(/\r?\n/).map(line => line.trim());
+  const isVod = lines.some(line => line === '#EXT-X-ENDLIST');
+  const segments = [];
+  let map = null;
+  let pendingRange = null;
+  let segmentOffset = 0;
+  let lastSegmentUrl = '';
+  let sawDiscontinuity = false;
+  for (const line of lines) {
+    if (line.startsWith('#EXT-X-KEY:')) {
+      const key = attributes(line);
+      if (key.METHOD && key.METHOD !== 'NONE') throw new Error('Esta playlist usa criptografia HLS não suportada. Conteúdo protegido não é baixado.');
+    } else if (line.startsWith('#EXT-X-SESSION-KEY:')) {
+      const key = attributes(line);
+      if (key.METHOD && key.METHOD !== 'NONE') throw new Error('A playlist contém chave de criptografia não suportada.');
+    } else if (line.startsWith('#EXT-X-MAP:')) {
+      const a = attributes(line);
+      if (!a.URI) throw new Error('EXT-X-MAP sem URI.');
+      const spec = rangeSpec(a.BYTERANGE, 0);
+      map = { url: absoluteUrl(a.URI, url), range: spec.range };
+    } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
+      pendingRange = line.slice('#EXT-X-BYTERANGE:'.length);
+    } else if (line === '#EXT-X-DISCONTINUITY') {
+      sawDiscontinuity = true;
+    } else if (line && !line.startsWith('#')) {
+      const segmentUrl = absoluteUrl(line, url);
+      if (segmentUrl !== lastSegmentUrl) segmentOffset = 0;
+      const ranged = rangeSpec(pendingRange, segmentOffset);
+      segments.push({ url: segmentUrl, range: ranged.range, map });
+      segmentOffset = ranged.nextOffset;
+      lastSegmentUrl = segmentUrl;
+      pendingRange = null;
+    }
+  }
+  if (!segments.length) throw new Error('A playlist não contém segmentos de vídeo.');
+  if (!isVod) throw new Error('Este stream é ao vivo ou ainda não tem fim definido. Somente vídeos completos (VOD) são suportados.');
+  if (sawDiscontinuity) throw new Error('Playlist com descontinuidade de codecs/timestamps requer remux; não será gerado arquivo inválido.');
+  const last = segments[0].url.split('?')[0].toLowerCase();
+  const isMp4 = Boolean(map);
+  if (!isMp4 && !(/\.ts$/i.test(last) || /\.aac$/i.test(last) || /\.mp3$/i.test(last))) {
+    throw new Error('Formato de segmento HLS desconhecido. Download bloqueado para evitar arquivo corrompido.');
+  }
+  if (segments.some(s => Boolean(s.map) !== isMp4)) throw new Error('Playlist alterna segmentos incompatíveis.');
+  const ext = isMp4 ? 'mp4' : (/\.aac$/i.test(last) ? 'aac' : /\.mp3$/i.test(last) ? 'mp3' : 'ts');
+  return { segments, extension: ext, isVod: true };
+}
 
 export class StreamDownloader {
-    constructor(playlistUrl, type = 'HLS') {
-        this.playlistUrl = playlistUrl;
-        this.type = type;
-        this.segments = [];
-        this.isCanceled = false;
-        this.concurrency = 6;
-        this.maxRetries = 3;
+  constructor(url, { concurrency = 4, maxBytes = 450 * 1024 * 1024 } = {}) {
+    this.url = absoluteUrl(url, url);
+    this.concurrency = concurrency;
+    this.maxBytes = maxBytes;
+    this.controller = new AbortController();
+    this.parsed = null;
+    this.variants = [];
+  }
+
+  async fetchText(url) {
+    const res = await fetch(url, { credentials: 'include', signal: this.controller.signal });
+    if (!res.ok) throw new Error(`Erro HTTP ${res.status} na playlist. Verifique autorização/expiração.`);
+    return res.text();
+  }
+
+  async inspect(url = this.url) {
+    const text = await this.fetchText(url);
+    if (!text.trimStart().startsWith('#EXTM3U')) throw new Error('Manifesto HLS inválido.');
+    if (text.includes('#EXT-X-STREAM-INF:')) {
+      const variants = parseMaster(text, url);
+      if (!variants.length) throw new Error('Master playlist sem qualidades.');
+      this.variants = variants;
+      return { variants };
     }
+    return { media: parseMedia(text, url) };
+  }
 
-    /**
-     * Resolve uma URL relativa com base na URL da playlist
-     */
-    resolveUrl(url, baseUrl) {
-        try {
-            return new URL(url, baseUrl).href;
-        } catch (e) {
-            return url;
-        }
+  async prepare(preferredUrl = null) {
+    const playlist = preferredUrl ? absoluteUrl(preferredUrl, this.url) : this.url;
+    const initial = await this.inspect(playlist);
+    if (initial.media) {
+      this.parsed = initial.media;
+      return initial.media;
     }
+    const chosen = initial.variants[0];
+    if (chosen.separateAudio) throw new Error('Esta qualidade possui áudio separado. É necessário um muxer; não será criado um arquivo sem áudio.');
+    const inner = await this.inspect(chosen.url);
+    if (!inner.media) throw new Error('Playlists HLS aninhadas não suportadas.');
+    this.parsed = inner.media;
+    return inner.media;
+  }
 
-    async fetchManifest(url = this.playlistUrl) {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Falha ao carregar manifesto: ${response.status}`);
-        const text = await response.text();
-        const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
-
-        if (this.type === 'HLS' || url.includes('.m3u8')) {
-            // Se for um Master Playlist, precisamos buscar a playlist de mídia real
-            if (text.includes('#EXT-X-STREAM-INF')) {
-                return this.parseMasterHLS(text, url);
-            }
-            return this.parseMediaHLS(text, baseUrl);
-        } else {
-            return this.parseDASH(text, baseUrl);
-        }
-    }
-
-    parseMasterHLS(text, masterUrl) {
-        const lines = text.split('\n');
-        const variants = [];
-        const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf('/') + 1);
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (line.startsWith('#EXT-X-STREAM-INF')) {
-                const resolutionMatch = line.match(/RESOLUTION=(\d+x\d+)/);
-                const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/);
-                
-                const resolution = resolutionMatch ? resolutionMatch[1] : 'Desconhecida';
-                const bandwidth = bandwidthMatch ? parseInt(bandwidthMatch[1]) : 0;
-                
-                let mediaUrl = lines[i + 1].trim();
-                if (mediaUrl.startsWith('#')) continue; // Pula comentários extras
-                
-                variants.push({
-                    resolution,
-                    bandwidth,
-                    url: this.resolveUrl(mediaUrl, baseUrl)
-                });
-            }
-        }
-        
-        // Ordena por banda larga (qualidade) decrescente
-        variants.sort((a, b) => b.bandwidth - a.bandwidth);
-        this.variants = variants;
-        return variants;
-    }
-
-    parseMediaHLS(text, baseUrl) {
-        const lines = text.split('\n');
-        const segments = [];
-        let currentKey = null;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-
-            if (line.startsWith('#EXT-X-KEY')) {
-                // TODO: Implementar suporte a criptografia AES-128 se necessário
-                console.warn('Criptografia detectada, suporte limitado.');
-            }
-
-            if (!line.startsWith('#')) {
-                segments.push(this.resolveUrl(line, baseUrl));
-            }
-        }
-
-        this.segments = segments;
-        return segments;
-    }
-
-    parseDASH(text, baseUrl) {
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(text, 'text/xml');
-        const segments = [];
-        
-        // DASH parsing sênior requer lidar com SegmentTemplate, SegmentList, etc.
-        // Por brevidade, focamos na melhoria do HLS que é o caso do usuário
-        const segmentUrls = xml.querySelectorAll('SegmentURL, BaseURL');
-        segmentUrls.forEach(s => {
-            const url = s.getAttribute('media') || s.textContent.trim();
-            if (url && (url.includes('.m4s') || url.includes('.ts') || url.includes('.mp4'))) {
-                segments.push(this.resolveUrl(url, baseUrl));
-            }
+  async requestPart(part) {
+    const headers = part.range ? { Range: `bytes=${part.range[0]}-${part.range[1]}` } : {};
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetch(part.url, {
+          credentials: 'include', headers, signal: this.controller.signal
         });
-
-        this.segments = segments;
-        return segments;
-    }
-
-    async download(onProgress) {
-        if (this.segments.length === 0) throw new Error('Nenhum segmento encontrado para baixar.');
-
-        const chunks = new Array(this.segments.length);
-        let completed = 0;
-        let failed = 0;
-
-        const downloadWithRetry = async (index, retryCount = 0) => {
-            if (this.isCanceled) return;
-            
-            try {
-                const resp = await fetch(this.segments[index]);
-                if (!resp.ok) throw new Error(`Status ${resp.status}`);
-                chunks[index] = await resp.arrayBuffer();
-                completed++;
-                if (onProgress) onProgress(completed / this.segments.length);
-            } catch (err) {
-                if (retryCount < this.maxRetries) {
-                    await new Promise(r => setTimeout(r, 1000 * (retryCount + 1)));
-                    return downloadWithRetry(index, retryCount + 1);
-                }
-                failed++;
-                console.error(`Falha definitiva no segmento ${index}:`, err);
-            }
-        };
-
-        // Gerenciamento de fila de download com concorrência controlada
-        const queue = [...Array(this.segments.length).keys()];
-        const workers = Array(this.concurrency).fill(null).map(async () => {
-            while (queue.length > 0 && !this.isCanceled) {
-                const index = queue.shift();
-                await downloadWithRetry(index);
-            }
-        });
-
-        await Promise.all(workers);
-
-        if (this.isCanceled) return null;
-        if (failed > (this.segments.length * 0.1)) {
-            throw new Error(`Muitos segmentos falharam (${failed}/${this.segments.length}). Download incompleto.`);
+        if (!response.ok) throw new Error(`HTTP ${response.status} no segmento`);
+        if (part.range && response.status !== 206) {
+          throw new Error('Servidor ignorou Range; não é seguro concatenar o arquivo inteiro.');
         }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (!bytes.length) throw new Error('Segmento vazio.');
+        return bytes;
+      } catch (err) {
+        lastError = err;
+        if (this.controller.signal.aborted) throw err;
+        if (attempt !== 2) await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
+      }
+    }
+    throw lastError;
+  }
 
-        // Concatenação de alta performance
-        const validChunks = chunks.filter(c => c !== undefined);
-        const totalLength = validChunks.reduce((acc, val) => acc + val.byteLength, 0);
-        const result = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const chunk of validChunks) {
-            result.set(new Uint8Array(chunk), offset);
-            offset += chunk.byteLength;
+  async download(onProgress = () => {}) {
+    if (!this.parsed) await this.prepare();
+    const { segments, extension } = this.parsed;
+    if (segments.length > 10000) throw new Error('Playlist grande demais para esta versão.');
+    const parts = [];
+    let lastMapKey = '';
+    for (const segment of segments) {
+      if (segment.map) {
+        const key = JSON.stringify(segment.map);
+        if (key !== lastMapKey) parts.push(segment.map);
+        lastMapKey = key;
+      }
+      parts.push(segment);
+    }
+    const chunks = new Array(parts.length);
+    let next = 0;
+    let completed = 0;
+    let totalBytes = 0;
+    const workers = Array.from({ length: Math.min(this.concurrency, parts.length) }, async () => {
+      while (next < parts.length && !this.controller.signal.aborted) {
+        const index = next++;
+        const data = await this.requestPart(parts[index]);
+        chunks[index] = data;
+        totalBytes += data.byteLength;
+        if (totalBytes > this.maxBytes) {
+          this.cancel();
+          throw new Error('Limite de memória de 450 MB atingido. Use um gerenciador local para arquivos grandes.');
         }
-        
-        return result;
-    }
+        onProgress({ done: ++completed, total: parts.length, bytes: totalBytes });
+      }
+    });
+    await Promise.all(workers);
+    if (this.controller.signal.aborted) throw new Error('Download cancelado.');
+    if (chunks.some(chunk => !chunk)) throw new Error('Arquivo incompleto. Nenhum download parcial será salvo.');
+    return { blob: new Blob(chunks, { type: extension === 'ts' ? 'video/mp2t' : extension === 'mp4' ? 'video/mp4' : 'application/octet-stream' }), extension };
+  }
 
-    cancel() {
-        this.isCanceled = true;
-    }
+  cancel() {
+    this.controller.abort();
+  }
 }
