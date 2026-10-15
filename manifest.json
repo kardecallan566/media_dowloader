@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Detecta e baixa arquivos diretos e streams HLS VOD não protegidos.",
-  "version": "1.2.0",
+  "description": "Encontre vídeos, imagens e áudios na página e baixe mídias disponíveis sem DRM.",
+  "version": "1.3.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
@@ -35,7 +35,8 @@
       "js": [
         "content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }
