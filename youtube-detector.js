@@ -48,6 +48,12 @@
   window.postMessage({kind,payload:state},location.origin);
  }
  function schedule(){clearTimeout(timer);timer=setTimeout(discover,350);}
+ window.addEventListener('message',event=>{
+  if(event.source!==window||event.origin!==location.origin||
+     event.data?.kind!=='MF_YOUTUBE_REFRESH_V1')return;
+  last='';
+  schedule();
+ });
  document.addEventListener('yt-navigate-finish',schedule);
  window.addEventListener('popstate',schedule);
  document.addEventListener('loadedmetadata',schedule,true);
