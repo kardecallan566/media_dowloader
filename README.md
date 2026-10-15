@@ -1,34 +1,60 @@
-# Media Finder Pro v1.2.0
+# Media Finder Pro · v1.3.0
 
-Extensão Chrome Manifest V3 para detectar e baixar mídias de páginas acessíveis, sem DRM.
+Extensão Chrome (Manifest V3) para detectar **vídeos, imagens e áudios**, com interface focada no conteúdo da página.
 
-## Implementado
-- Detecção por requisições, fontes HTML, links e metadados.
-- Download direto de vídeo e áudio pelo gerenciador Chrome.
-- HLS VOD: leitura do manifesto, escolha automática da variante de maior bitrate e download independente da reprodução.
-- Suporte a EXT-X-MAP e BYTERANGE; segmentos baixados em ordem com tentativas e progresso.
-- Download HLS no documento offscreen, sem depender do popup aberto.
-- Preservação de MPEG-TS como .ts, sem MP4 falso; erros quando a playlist não pode ser montada.
-- Limite de 450 MiB por transferência HLS para evitar esgotamento de memória.
+## O que mudou na 1.3
 
-## Limitações
-- DASH detectado, mas ainda não baixado. Requer muxer.
-- HLS com áudio separado, criptografia, descontinuidades ou playlist live não é suportado.
-- Alguns sites só expõem a URL do manifesto após Play. Não é possível garantir suporte universal.
-- DRM, fontes blob sem URL recuperável e conteúdo protegido não são suportados.
-- TS pode precisar de remux externo para MP4.
-- Arquivos grandes acima de 450 MiB e downloads interrompidos por reinício do navegador requerem arquitetura de streaming.
+- Interface renovada: abas **Vídeos / Imagens / Áudios**, cartões compactos, prévias quando disponíveis e botões de download por item.
+- Prioridade para mídia visível e identificada no DOM da página, incluindo algumas páginas com players incorporados.
+- Fontes detectadas exclusivamente pela rede aparecem de forma resumida (até 2 inicialmente) e as demais ficam em **Ver outras fontes**. Isso evita exibir uma lista enorme de recursos de feed como se fossem todos vídeos da postagem atual.
+- URLs de arquivos iguais são agrupadas por identidade da mídia quando é seguro fazer isso. Links assinados são preservados integralmente para o download.
+- As imagens da página são detectadas pelo DOM com filtros de tamanho para evitar dezenas de ícones e avatares. As imagens requisitadas pela rede **não** são adicionadas indiscriminadamente.
+- Botões de download para arquivos diretos MP4/WebM, JPG/PNG/WebP/AVIF e formatos comuns de áudio, dependendo da origem.
+- Acompanhamento do estado do gerenciador de downloads do Chrome; tratamento de cancelamento.
+- Playlists **HLS VOD sem criptografia** continuam sendo processadas fora do popup, com progresso e formato original.
 
-## Instalação
-1. Abra chrome://extensions e ative o modo do desenvolvedor.
-2. Escolha Carregar sem compactação e selecione a pasta do projeto.
-3. Recarregue a aba com o vídeo, abra o popup e clique em Baixar vídeo.
-4. Veja erros no service worker pela página de extensões.
+## Instagram e páginas de feed
 
-Baixe apenas conteúdos que você tem permissão para obter.
+O Instagram pode carregar várias mídias automaticamente, incluindo prévias e vídeos de outras publicações. A extensão agora mostra preferencialmente mídias **visíveis na aba**. Quando não há URL direta associável ao player, mostra até 2 **possíveis arquivos** identificados nas requisições e mantém os demais recolhidos.
 
-## Próximos passos
-- Muxer integrado de HLS TS/fMP4 e áudio separado.
-- DASH SegmentTemplate/SegmentTimeline com mux.
-- Streaming para disco e fila persistente.
-- Testes automatizados de manifesto e downloads.
+**Limitação importante:** não há como afirmar, apenas observando 75 respostas HTTP, que são 75 vídeos diferentes ou que todas fazem parte da mesma postagem. A interface não faz essa associação sem evidência. Fontes adicionais continuam acessíveis, para você escolher manualmente quando necessário.
+
+## Instalação/atualização
+
+1. Abra `chrome://extensions` e ative o **Modo do desenvolvedor**.
+2. Faça `git pull origin main` na pasta do projeto, ou baixe a versão atualizada.
+3. Se a extensão já está instalada, clique no botão **Recarregar** dela.
+4. Atualize também a aba do Instagram/site, para que o novo detector seja injetado.
+5. Clique na extensão, selecione **Vídeos**, **Imagens** ou **Áudios** e clique em **Baixar**.
+6. Use **↻** para procurar fontes novamente ou **⌫** para limpar a lista e refazer a busca.
+
+Em uma atualização direta da versão 1.2, a extensão limpa a lista antiga para não reapresentar dezenas de entradas sem informações de origem.
+
+## Limites técnicos
+
+- Downloads diretos dependem de o servidor disponibilizar um URL de arquivo completo e permitir o acesso via navegador. Respostas fragmentadas podem não corresponder ao vídeo completo.
+- Vídeos com DRM (como Widevine), protegidos por licença ou que não disponibilizem arquivos acessíveis não são suportados.
+- O DASH/MPD é detectado, porém baixar e muxar corretamente áudio e vídeo ainda é uma implementação futura.
+- HLS de transmissões ao vivo, arquivos criptografados, faixas de áudio separadas ou playlists com descontinuidades não é suportado. Fluxos TS são salvos como `.ts`, não falsamente renomeados para `.mp4`.
+- O processo HLS ainda possui limite de 450 MiB em memória; não suporta retomada após reinício do navegador.
+- Imagens pequenas (ícones, avatares e similares) são omitidas intencionalmente para diminuir ruído.
+- Sites podem exigir iniciar a reprodução para revelar a URL. Não há suporte universal a todos os players.
+
+Use a extensão somente para baixar conteúdos que você tem permissão de obter.
+
+## Testes
+
+Requer Node.js 20+:
+
+```bash
+npm test
+```
+
+Os testes cobrem parsing HLS, reconhecimento de tipos, segurança das extensões, deduplicação de URLs e ordenação dos resultados. A automação está em `.github/workflows/tests.yml`.
+
+## Próximas melhorias
+
+- Associação mais precisa entre players e URLs de rede em aplicações com `blob:`.
+- Muxing de HLS com áudio separado e TS → MP4.
+- Suporte DASH com `SegmentTemplate`, `SegmentTimeline` e áudio/vídeo.
+- Transferência em streaming para disco e downloads com retomada.
