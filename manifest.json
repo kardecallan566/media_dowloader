@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Identifica mídias, verifica arquivos completos e evita downloads de fragmentos MP4.",
-  "version": "1.4.0",
+  "description": "Detecta players HTML5, vídeos MSE/blob, imagens e arquivos multimídia verificáveis.",
+  "version": "1.5.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
@@ -36,6 +36,18 @@
         "content.js"
       ],
       "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://*.youtube-nocookie.com/*"
+      ],
+      "js": [
+        "youtube-detector.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN",
       "all_frames": true
     }
   ]
