@@ -27,10 +27,11 @@ export function mediaType(raw, mime='') {
  if (IMAGE.has(ext)||contentType.startsWith('image/'))return 'Image';
  return null;
 }
-export function group(type){return ['HLS','DASH','Video'].includes(type)?'video':type==='Audio'?'audio':type==='Image'?'image':null;}
+export function group(type){return ['HLS','DASH','Video','Player'].includes(type)?'video':type==='Audio'?'audio':type==='Image'?'image':null;}
 const STRIP=new Set(['expires','expire','exp','token','signature','sig','policy','key-pair-id','x-amz-signature','x-amz-date','x-amz-credential','x-amz-security-token','x-amz-expires','oh','oe','ccb']);
-export function mediaKey(url,type) {
+export function mediaKey(url,type,playerId='') {
  const u=new URL(url);
+ if(type==='Player')return `player:${u.origin}${u.pathname}${u.search}:${String(playerId||'main').slice(0,60)}`;
  // Query values such as "id" or "url" can identify different files and must remain.
  for(const key of [...u.searchParams.keys()]){
   const k=key.toLowerCase();
@@ -43,7 +44,7 @@ export function mediaKey(url,type) {
 }
 export function fileExtension(item) {
  const type=item.type,mime=String(item.contentType||'').split(';')[0].toLowerCase();
- if(type==='HLS'||type==='DASH')return null;
+ if(type==='HLS'||type==='DASH'||type==='Player')return null;
  const path=new URL(item.url).pathname,ext=(path.match(/\.([a-z0-9]{2,5})$/i)||[])[1]?.toLowerCase();
  const allowed=type==='Image'?IMAGE:type==='Audio'?AUDIO:VIDEO;
  if(ext&&allowed.has(ext))return ext;
@@ -59,7 +60,7 @@ export function shouldIgnoreNetwork(url,type) {
 export function ranking(item) {
  const active=item.status==='running'||item.status==='saving'||item.status==='downloading';
  return (active?1000:0)+(item.source==='page'?300:0)+(item.visible?120:0)+
- (item.type==='HLS'?40:0)+(item.type==='Video'?35:0)+(item.type==='DASH'?10:0);
+ (item.type==='HLS'?40:0)+(item.type==='Player'?38:0)+(item.type==='Video'?35:0)+(item.type==='DASH'?10:0);
 }
 export function sortMedia(items) {
  return [...items].sort((a,b)=>ranking(b)-ranking(a)||new Date(b.time)-new Date(a.time));
