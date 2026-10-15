@@ -139,7 +139,12 @@
   document.addEventListener('yt-navigate-finish',()=>{youtube=null;schedule(true)});
  }
  chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
-  if(msg?.cmd==='rescanMedia'){scan(true);sendResponse({ok:true});}
+  if(msg?.cmd==='rescanMedia'){
+   scan(true);
+   if(hasYouTubeHost)window.postMessage({kind:'MF_YOUTUBE_REFRESH_V1'},location.origin);
+   sendResponse({ok:true});
+  }
  });
  scan(true);
+ if(hasYouTubeHost)setTimeout(()=>window.postMessage({kind:'MF_YOUTUBE_REFRESH_V1'},location.origin),800);
 })();
