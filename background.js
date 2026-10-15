@@ -16,14 +16,25 @@ async function updateBadge(tabId,list) {
 async function tabTitle(tabId) {
  try {return (await chrome.tabs.get(tabId)).title||'Mídia';}catch{return 'Mídia';}
 }
-async function saveCandidates(tabId,rawItems,source) {
- if(!validTab(tabId)||!Array.isArray(rawItems)||!rawItems.length)return;
+async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
+ if(!validTab(tabId)||!Array.isArray(rawItems)||(!rawItems.length&&!snapshot))return;
  const title=await tabTitle(tabId);
  await serial(async()=>{
   const {mediaStore={}}=await chrome.storage.local.get(STORE);
   const key=String(tabId),list=mediaStore[key]||[];
   const indexed=new Map(list.filter(i=>i.key).map(i=>[i.key,i]));
   let changed=false;
+  if(snapshot){
+   const currentKeys=new Set(rawItems.filter(x=>x?.visible).map(x=>{
+    const url=normalizedUrl(x.url),type=url?mediaType(url,x.contentType||''):null;
+    return type?mediaKey(url,type):null;
+   }).filter(Boolean));
+   for(const old of list){
+    if(old.source==='page'&&old.frameId===frameId&&old.visible&&!currentKeys.has(old.key)){
+     old.visible=false;changed=true;
+    }
+   }
+  }
   for(const input of rawItems.slice(0,45)){
    const url=normalizedUrl(input?.url);
    if(!url)continue;
@@ -33,20 +44,21 @@ async function saveCandidates(tabId,rawItems,source) {
    let found=indexed.get(identity)||list.find(i=>i.url===url);
    const visible=source==='page'&&input.visible===true;
    if(found){
-    if(source==='page'&&(found.source!=='page'||(!found.visible&&visible))){
-     found.source='page';found.visible=visible||Boolean(found.visible);
-     found.thumbnail=clean(input.thumbnail).startsWith('http')?normalizedUrl(input.thumbnail):found.thumbnail;
+    if(source==='page'&&(found.source!=='page'||found.visible!==visible||found.frameId!==frameId)){
+     found.source='page';found.visible=visible;found.frameId=frameId;
+     found.thumbnail=normalizedUrl(input.thumbnail)||found.thumbnail;
      found.label=clean(input.label)||found.label;
      found.duration=Number.isFinite(input.duration)&&input.duration>0?input.duration:found.duration;
      found.width=Number(input.width)||found.width;
      found.height=Number(input.height)||found.height;
      changed=true;
     }
+    if(found.url!==url){found.url=url;changed=true;}
     if(!found.key){found.key=identity;changed=true;}
     continue;
    }
    const item={
-    id:crypto.randomUUID(),key:identity,url,type,source,visible,
+    id:crypto.randomUUID(),key:identity,url,type,source,visible,frameId,
     tabTitle:title,label:clean(input.label),contentType:clean(input.contentType),
     thumbnail:normalizedUrl(input.thumbnail)||null,
     duration:Number.isFinite(input.duration)&&input.duration>0?Math.round(input.duration):null,
@@ -144,7 +156,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
  (async()=>{
   if(msg.cmd==='onMediaDetected' || msg.cmd==='mediaSnapshot'){
    const list=msg.cmd==='mediaSnapshot'?msg.items:[msg];
-   await saveCandidates(sender.tab?.id,list,'page');
+   await saveCandidates(sender.tab?.id,list,'page',sender.frameId||0,msg.cmd==='mediaSnapshot');
    return {ok:true};
   }
   if(msg.cmd==='getMediaForTab'){
