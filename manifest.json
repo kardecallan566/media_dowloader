@@ -1,40 +1,41 @@
 {
-    "manifest_version": 3,
-    "name": "Media Finder Pro 🎥",
-    "description": "Detector de mídias premium 🔍. Baixe vídeos em alta qualidade de qualquer site.",
-    "version": "1.1.1",
-    "action": {
-        "default_title": "Media Finder 🔍",
-        "default_popup": "popup.html"
-    },
-    "icons": {
-        "16": "icons/icon.png",
-        "48": "icons/icon.png",
-        "128": "icons/icon.png"
-    },
-    "permissions": [
-        "activeTab",
-        "scripting",
-        "webRequest",
-        "storage",
-        "downloads"
-    ],
-    "host_permissions": [
+  "manifest_version": 3,
+  "name": "Media Finder Pro",
+  "description": "Detecta e baixa arquivos diretos e streams HLS VOD não protegidos.",
+  "version": "1.2.0",
+  "action": {
+    "default_title": "Media Finder Pro",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "16": "icons/icon.png",
+    "48": "icons/icon.png",
+    "128": "icons/icon.png"
+  },
+  "permissions": [
+    "activeTab",
+    "webRequest",
+    "storage",
+    "downloads",
+    "offscreen",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
         "<all_urls>"
-    ],
-    "background": {
-        "service_worker": "background.js",
-        "type": "module"
-    },
-    "content_scripts": [
-        {
-            "matches": [
-                "<all_urls>"
-            ],
-            "js": [
-                "content.js"
-            ],
-            "run_at": "document_idle"
-        }
-    ]
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }
