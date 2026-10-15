@@ -86,8 +86,8 @@
    }
   }
   // Instagram reels and Shorts may not mount an HTMLVideoElement until playback starts.
-  const instagram=/(^|\\.)instagram\\.com$/.test(location.hostname);
-  if(instagram && /^\\/reel\\/[^/]+/.test(location.pathname) &&
+  const instagram=/(^|\.)instagram\.com$/.test(location.hostname);
+  if(instagram && /^\/reel\/[^/]+/.test(location.pathname) &&
      ![...data.values()].some(x=>x.type==='Player'||x.contentType?.startsWith('video/'))){
    player(data,{playerId:'instagram-reel',label:document.title||'Instagram Reel',
     thumbnail:poster,engine:'Instagram Reel',playback:false,
