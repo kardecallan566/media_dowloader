@@ -62,7 +62,7 @@ async function runDirectVideo(message,controller){
   if(!mime.toLowerCase().startsWith('video/'))throw new Error('Servidor respondeu conteúdo que não é vídeo.');
   const reader=response.body?.getReader();
   if(!reader)throw new Error('Resposta do vídeo não contém dados.');
-  const chunks=[];let received=0;
+  const chunks=[];let received=0;let lastProgressAt=0;let lastPercent=-1;
   try{
    while(true){
     const {done,value}=await reader.read();
@@ -71,8 +71,12 @@ async function runDirectVideo(message,controller){
     if(received>DIRECT_MAX_BYTES)throw new Error('Vídeo excede o limite de validação de 96 MB.');
     chunks.push(value);
     const percent=message.expectedBytes?Math.min(87,Math.round(received/message.expectedBytes*87)):0;
-    emit(message.tabId,{id:message.id,status:'running',progress:percent,
-     message:'Baixando e verificando: '+(received/1048576).toFixed(1)+' MB'});
+    const now=Date.now();
+    if(now-lastProgressAt>450 || (percent===87&&lastPercent!==87)){
+     lastProgressAt=now;lastPercent=percent;
+     emit(message.tabId,{id:message.id,status:'running',progress:percent,
+      message:'Baixando e verificando: '+(received/1048576).toFixed(1)+' MB'});
+    }
    }
   }finally{await reader.cancel().catch(()=>{});}
   if(message.expectedBytes&&received!==message.expectedBytes)
