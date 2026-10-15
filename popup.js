@@ -10,6 +10,8 @@ let expanded=false;
 let moreLimit=10;
 let refreshTimer=null;
 let loading=false;
+const verifiedThisOpen=new Set();
+let autoTimer=null;
 const names={video:'Vídeo',image:'Imagem',audio:'Áudio'};
 const icons={video:'▶',image:'▧',audio:'♫'};
 function node(tag,klass='',value=''){
@@ -31,6 +33,8 @@ function hostName(item){
  catch{return 'Fonte detectada';}
 }
 function statusText(item){
+ if(item.status==='checking')return 'Analisando tamanho, resposta HTTP e estrutura da mídia...';
+ if(item.status==='blocked')return item.message||'Fonte parcial ou indisponível.';
  if(item.status==='error')return item.message||'Falha no download';
  if(item.status==='canceled')return 'Download cancelado';
  if(item.status==='done')return item.message||'Download concluído';
@@ -65,11 +69,20 @@ function mediaCard(item,index,{uncertain=false}={}){
  if(item.width&&item.height)chips.append(node('span','chip',`${item.width}×${item.height}`));
  if(item.duration)chips.append(node('span','chip',timeLabel(item.duration)));
  if(item.source==='page'&&item.visible)chips.append(node('span','chip','Na página'));
+ if(item.type==='Video'||item.type==='Audio'||item.type==='Image'){
+  const analysis=item.analysis;
+  if(analysis?.state==='likely')chips.append(node('span','chip verified','Download provável'));
+  else if(analysis?.state==='partial'||item.status==='blocked')chips.append(node('span','chip warning','Fragmento / indisponível'));
+  else if(analysis?.state==='unavailable')chips.append(node('span','chip warning','Acesso negado'));
+  else if(analysis?.state==='uncertain')chips.append(node('span','chip warning','Não confirmado'));
+  else if(item.responseStatus===206)chips.append(node('span','chip warning','Resposta 206'));
+  else chips.append(node('span','chip','A verificar'));
+ }
  const host=node('div','media-host',hostName(item));
  main.append(head,chips,host);line.append(preview(item),main);card.append(line);
  const status=statusText(item);
- if(status){
-  card.append(node('div',item.status==='error'?'state error':'state',status));
+ if(status||item.analysis?.reason){
+  card.append(node('div',['error','blocked'].includes(item.status)?'state error':'state',status||item.analysis?.reason));
   if(item.status==='running'||item.status==='saving'){
    const track=node('div','track');
    const fill=node('div','fill');fill.style.width=`${Math.max(0,Math.min(100,item.progress||0))}%`;
@@ -77,8 +90,10 @@ function mediaCard(item,index,{uncertain=false}={}){
   }
  }
  const actions=node('div','media-actions');
- const isRunning=['running','saving','downloading'].includes(item.status);
- const button=node('button','download-btn',isRunning?'Baixando...':item.status==='done'?'Baixar novamente':`Baixar ${names[kind]?.toLowerCase()||'arquivo'}`);
+ const isRunning=['checking','running','saving','downloading'].includes(item.status);
+ const blocked=item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
+ const button=node('button','download-btn',isRunning?'Verificando / baixando...':blocked?'Verificar novamente':item.status==='done'?'Baixar novamente':
+  (item.type==='HLS'?'Baixar stream':item.analysis?.canDownload?`Baixar ${names[kind]?.toLowerCase()||'arquivo'}`:'Verificar e baixar'));
  const formatMissing=item.type!=='HLS'&&item.type!=='DASH'&&!ext;
  if(item.type==='DASH')button.textContent='DASH indisponível';
  if(formatMissing)button.textContent='Formato indisponível';
@@ -87,8 +102,10 @@ function mediaCard(item,index,{uncertain=false}={}){
  button.onclick=async()=>{
   button.disabled=true;button.textContent='Preparando...';notify('');
   try{
-   const result=await chrome.runtime.sendMessage({cmd:'startDownload',tabId,id:item.id});
-   if(!result?.ok)throw new Error(result?.error||'Falha ao iniciar o download.');
+   const cmd=blocked?'verifyMedia':'startDownload';
+   const result=await chrome.runtime.sendMessage({cmd,tabId,id:item.id,force:blocked});
+   if(!result?.ok)throw new Error(result?.error||'Não foi possível verificar o arquivo.');
+   if(cmd==='verifyMedia'&&result.analysis?.canDownload)notify('Fonte aprovada na verificação. Clique em Baixar para continuar.');
    await load();
   }catch(error){notify(error.message);await load();}
  };
@@ -165,6 +182,21 @@ function render(){
  if(choices.some(item=>item.type==='HLS')){
   list.append(node('div','notice','Streams HLS podem ser salvos em formato TS; converter para MP4 pode exigir uma ferramenta externa.'));
  }
+ if(active==='video'&&/youtube\.com|youtu\.be/i.test(tabUrl)&&!page.length)
+  list.append(node('div','notice','YouTube costuma usar áudio e vídeo separados (DASH). A extensão ainda não monta esse formato automaticamente.'));
+ scheduleAutoVerify(focus);
+}
+function scheduleAutoVerify(focus){
+ clearTimeout(autoTimer);
+ const candidates=focus.filter(item=>['Video','Audio','Image'].includes(item.type)&&
+  !item.analysis?.checkedAt&&item.status==='ready'&&!verifiedThisOpen.has(item.id)).slice(0,2);
+ for(const item of candidates)verifiedThisOpen.add(item.id);
+ if(!candidates.length)return;
+ autoTimer=setTimeout(async()=>{
+  for(const candidate of candidates){
+   await chrome.runtime.sendMessage({cmd:'verifyMedia',tabId,id:candidate.id}).catch(()=>{});
+  }
+ },300);
 }
 async function load(){
  if(tabId===null)return;
@@ -189,6 +221,7 @@ document.querySelectorAll('[data-kind]').forEach(tab=>tab.addEventListener('clic
 }));
 $('refresh').onclick=()=>rescan();
 $('clear').onclick=async()=>{
+ verifiedThisOpen.clear();
  const result=await chrome.runtime.sendMessage({cmd:'clearMediaForTab',tabId});
  if(!result?.ok){notify(result?.error||'Não foi possível limpar.');return;}
  items=[];expanded=false;render();await rescan();
