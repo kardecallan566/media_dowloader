@@ -1,4 +1,5 @@
 // HLS playlist parser/downloader. No transcoding, DRM bypass or fake MP4 conversion.
+import { signedExpiry } from './download-routing.js';
 export function absoluteUrl(value, base) {
   const url = new URL(value, base);
   if (!['https:', 'http:'].includes(url.protocol)) throw new Error('URL de mídia inválida.');
@@ -102,11 +103,8 @@ export function parseMedia(text, url) {
 }
 
 export function playlistExpiry(url, now=Date.now()) {
- try {
-  const raw=new URL(url).searchParams.get('expires');
-  if(!raw||!/^[0-9]{10}$/.test(raw))return null;
-  return Number(raw)*1000 <= now+15000 ? 'expired' : 'valid';
- }catch{return null;}
+ const expiry=signedExpiry(url,now);
+ return expiry ? (expiry.expired?'expired':'valid') : null;
 }
 
 export class StreamDownloader {
