@@ -146,6 +146,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
    respond({ok:true});
    return;
   }
+  if(message.cmd==='inspectHlsJob'){
+   (async()=>{
+    try{
+     const downloader=new StreamDownloader(message.url);
+     const result=await downloader.inspect();
+     const variants=result.variants?
+      result.variants.map(v=>({url:v.url,resolution:v.resolution,bandwidth:v.bandwidth,
+       separateAudio:Boolean(v.separateAudio)})):
+      [{url:message.url,resolution:'Qualidade única',bandwidth:0,separateAudio:false}];
+     respond({ok:true,variants});
+    }catch(error){respond({ok:false,error:error.message||String(error)});}
+   })();
+   return true;
+  }
   if (message.cmd === 'cancelJob') {
     jobs.get(message.id)?.cancel();
     respond({ok:true});
