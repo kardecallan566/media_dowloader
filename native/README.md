@@ -1,8 +1,8 @@
-# Assistente local opcional (Windows / Chrome / Brave)
+# Assistente nativo Media Finder Pro · v1.9.0
 
 O Media Finder Pro funciona sozinho para URLs de arquivo e HLS VOD compatíveis. Para páginas que apenas oferecem um player `blob:/MSE` ou vídeo/áudio separados, o **assistente local opcional** pode tentar obter o arquivo original e montar vídeo + áudio corretamente com **yt-dlp + FFmpeg**.
 
-Ele **não** captura/grava a reprodução, não remove DRM e não consegue garantir todos os vídeos. O uso de cookies do Brave é **opcional e depende de autorização explícita a cada download**; a configuração padrão não usa cookies. Funciona inicialmente com URLs HTTPS do Instagram, YouTube e YouTube Shorts que estejam acessíveis para o usuário.
+Ele **não** captura/grava a reprodução, não remove DRM e não consegue garantir todos os vídeos. O acesso a cookies é **opcional e depende de seleção explícita a cada download**; o padrão agora é **Sem sessão**. São suportadas tentativas com Brave ou Firefox. Funciona inicialmente com URLs HTTPS do Instagram, YouTube e YouTube Shorts que estejam acessíveis para o usuário.
 
 ## Pré-requisitos
 
@@ -39,13 +39,15 @@ powershell -ExecutionPolicy Bypass -File .\native\install.ps1 -ExtensionId COLE_
 - Não há servidor HTTP local, credenciais de API nem coleta externa de dados da extensão.
 - O navegador comunica-se apenas com o executável registrado por Native Messaging; o host aceita comandos com URLs HTTPS de Instagram/YouTube.
 - O usuário inicia cada tentativa manualmente. O host só executa yt-dlp/FFmpeg com uma lista fixa de argumentos, **sem shell**.
-- A leitura de cookies **não é automática**: só ocorre ao marcar `Usar sessão do Brave neste download`. Essa opção usa `yt-dlp --cookies-from-browser brave`, que pode ter acesso à sessão do navegador; utilize somente se confiar no assistente local e tiver autorização para obter o conteúdo. O Brave pode impedir a extração por mecanismos de proteção de cookies. Não existe garantia de acesso.
+- **Sem sessão** é o padrão e não lê cookies. Para uma sessão autenticada, selecione explicitamente **Brave** ou **Firefox** na extensão. O yt-dlp tenta a interface oficial `--cookies-from-browser` com o navegador escolhido.
+- Quando houver erro de leitura da sessão (proteção de cookies, DPAPI ou banco indisponível), o assistente comunica a falha e tenta novamente sem cookies. Isso funciona apenas para conteúdo público acessível; publicações privadas podem continuar indisponíveis.
+- A extensão não copia cookies, não modifica as proteções do Brave e não extrai sessões sem consentimento.
 - O host e as dependências se conectam às plataformas para obter mídia, sujeitos aos controles de acesso e direitos aplicáveis.
 - Use somente vídeos que você pode baixar. Vídeos com DRM, conteúdo não disponibilizado ao usuário ou bloqueios de acesso não são contornados.
 
 ## Limites
 
-- Se o vídeo exige login, tente a opção de sessão do Brave **somente com consentimento explícito**. A extração pode falhar no Windows devido à proteção de cookies; isso não será contornado.
+- Se o vídeo exige login, tente um navegador no qual você esteja autenticado (Brave ou Firefox), **somente com seleção explícita**. No Windows, o Brave pode impedir a extração de cookies e essa proteção não será contornada. Tentar sem cookies só funciona para vídeos públicos.
 - A instalação precisa ser repetida se o ID da extensão mudar, por exemplo ao carregar o projeto de outra pasta.
 - Atualizações de Instagram/YouTube podem exigir nova versão do yt-dlp: `scoop update yt-dlp`.
 - Downloads grandes consomem armazenamento e podem falhar; a lógica do host informa o erro.
