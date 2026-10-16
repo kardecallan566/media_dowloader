@@ -1,4 +1,10 @@
-# Assistente local · atualizações v1.10.0
+# Assistente local · v1.11.0
+
+A versão 1.11.0 permite, de forma opcional, tentar baixar vídeos de Pins individuais por `yt-dlp` + `FFmpeg`. Aceita somente o caminho `/pin/<número>/` dos domínios oficiais do Pinterest. **Não aceita a página inicial, pesquisa nem o perfil como URL de vídeo**. Nenhuma sessão é lida por padrão; a extensão só usa cookies se o usuário escolher explicitamente essa opção.
+
+Como `native/host.py` mudou, após `git pull origin main` execute novamente `native/install.ps1` com o ID da extensão e reinicie o Brave. O helper continua sem mecanismo de remoção de DRM e respeita recusas de acesso.
+
+---
 
 **A versão nova do código Python precisa ser recompilada**: `git pull origin main` → `powershell -ExecutionPolicy Bypass -File .\native\install.ps1 -ExtensionId SEU_ID` → reiniciar Brave.
 
