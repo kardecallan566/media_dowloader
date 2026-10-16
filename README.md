@@ -1,4 +1,25 @@
-# Media Finder Pro · v1.5.0
+# Media Finder Pro · v1.6.0
+
+## Novo na v1.6: baixar de um player MSE/blob
+
+Ao encontrar o vídeo no Instagram, o card **PLAYER / MSE / blob** agora apresenta duas ações:
+
+- **Buscar fontes de download:** abre possíveis URLs MP4/HLS observadas na mesma aba, informando claramente que elas podem pertencer a outra mídia do feed. Ao selecionar uma fonte direta, ela passa por verificação antes de baixar.
+- **Baixar completo com assistente local:** opção para Instagram/YouTube com [assistente nativo](native/README.md), usando **yt-dlp + FFmpeg** quando o navegador só dispõe de faixas adaptativas de áudio e vídeo. É opcional e exige uma instalação manual no computador.
+
+### MP4 disponibilizado em intervalos de bytes
+
+Quando um servidor retorna apenas os primeiros 1.000 bytes com `HTTP 206` e informa o **Content-Range total**, a extensão verifica se esses bytes são o cabeçalho de um MP4/WebM e tenta solicitar **todos os intervalos do mesmo arquivo**. Cada segmento precisa responder com offset, limite e tamanho total coerentes. O arquivo montado é validado (contêiner e duração) antes de ser salvo. O limite atual é **96 MiB**, com recusa se algum intervalo estiver ausente ou se a fonte usar fragmentos de recursos independentes.
+
+Essa montagem de intervalos não substitui um muxer de áudio/vídeo separado nem serve para DRM. URLs do feed não são garantidamente do player atual; confira a fonte.
+
+### Instalação
+
+Atualize a pasta do projeto com `git pull origin main`, recarregue a extensão e a aba no Chrome/Brave, e confirme **v1.6.0** no rodapé. Para instalar a opção de streaming com FFmpeg, siga [native/README.md](native/README.md) e informe o ID da extensão ao instalador. Sem o assistente, a detecção e os downloads diretos continuam funcionando.
+
+**Status de validação:** os testes automatizados cobrem intervalos, rejeição de respostas incompatíveis e parâmetros de segurança do assistente. Ainda é necessário testar um Reel e um vídeo real do YouTube no seu navegador, com suas próprias permissões de acesso.
+
+---
 
 ## O que mudou na versão 1.5
 
@@ -91,6 +112,8 @@ npm test
 Os testes cobrem parsing HLS, reconhecimento de tipos, segurança das extensões, deduplicação de URLs, ordenação dos resultados, Content-Range, assinaturas de mídia e detecção de MP4 de 1 KB / 313 KB sem dados de vídeo. A automação está em `.github/workflows/tests.yml`.
 
 ## Próximas melhorias
+
+- Muxing independente do assistente local para formatos compatíveis com Manifest V3.
 
 - Associação mais precisa entre players e URLs de rede em aplicações com `blob:`.
 - Muxing de HLS com áudio separado e TS → MP4.
