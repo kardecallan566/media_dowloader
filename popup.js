@@ -69,6 +69,7 @@ function possibleSources(player){
  const host=(()=>{try{return new URL(player.url).hostname;}catch{return '';}})();
  const isInstagram=host==='instagram.com'||host.endsWith('.instagram.com');
  const isYoutube=host==='youtube.com'||host.endsWith('.youtube.com');
+ const isPinterest=host==='pinterest.com'||host.endsWith('.pinterest.com');
  return items.filter(candidate=>{
   if(candidate.id===player.id||candidate.type==='Player')return false;
   if(!['Video','HLS','DASH'].includes(candidate.type))return false;
@@ -78,6 +79,7 @@ function possibleSources(player){
    const sourceHost=new URL(candidate.url).hostname;
    if(isInstagram)return sourceHost.endsWith('.cdninstagram.com')||sourceHost.endsWith('.fbcdn.net');
    if(isYoutube)return sourceHost==='googlevideo.com'||sourceHost.endsWith('.googlevideo.com');
+   if(isPinterest)return sourceHost==='pinimg.com'||sourceHost.endsWith('.pinimg.com');
    return true;
   }catch{return false;}
  }).sort((a,b)=>{
@@ -298,8 +300,11 @@ function mediaCard(item,index,{uncertain=false}={}){
   const all=possibleSources(item);
   panel.append(node('div','section-title',all.length?
    'Possíveis fontes encontradas':'Nenhum arquivo completo identificado ainda'));
+  const pinterestPanel=/pinterest\.com/.test(tabUrl);
   panel.append(node('div','notice',all.length?
-   'As fontes vêm de requisições da página e podem ser de outros vídeos do feed. Verifique antes de baixar.':
+   (pinterestPanel?
+    'Essas fontes HLS podem ser qualidades ou faixas separadas do mesmo vídeo, não downloads completos diferentes. Para vídeo com áudio, abra o Pin específico e use o assistente local.':
+    'As fontes vêm de requisições da página e podem ser de outros vídeos do feed. Verifique antes de baixar.'):
    'O player usa blob/MSE. Reproduza brevemente e clique em Atualizar para tentar identificar as fontes; não precisa assistir até o fim.'));
   for(let i=0;i<all.length;i++){
    const candidate=all[i];
