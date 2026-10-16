@@ -1,4 +1,13 @@
-# Media Finder Pro · v1.6.0
+# Media Finder Pro · v1.7.0
+
+## Correção: Instagram retorna “Unsupported URL” ou exige cookies
+
+Na versão anterior, o assistente recebia `https://www.instagram.com/` quando um vídeo aparecia no feed. Esse endereço não identifica um Reel. Na v1.7 a extensão procura um link **único e específico** de publicação junto ao player; caso contrário, desabilita o download e orienta abrir o Reel/post em sua página `/reel/...` ou `/p/...`. Nunca seleciona automaticamente um vídeo aleatório do feed.
+
+Para posts que exigem login, há a opção **Usar sessão do Brave neste download**. Ela só é ativada após marcar a caixa e permite ao yt-dlp tentar ler cookies locais do Brave. **Essa opção dá acesso temporário à sessão autenticada para a ferramenta local**, deve ser usada apenas em conteúdos que você tem permissão para baixar, e pode falhar devido à proteção de cookies do Brave no Windows. Nenhum cookie é enviado pelo protocolo de mensagens da extensão ao assistente.
+
+**O arquivo `mediafinder_native.exe` já instalado não se atualiza com `git pull`.** Depois de atualizar o projeto, execute novamente `native/install.ps1` com o mesmo ID da extensão e reinicie o navegador.
+
 
 ## Novo na v1.6: baixar de um player MSE/blob
 
