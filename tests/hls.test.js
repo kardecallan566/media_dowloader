@@ -64,7 +64,7 @@ test('native browser fetch is called without binding it to StreamDownloader',asy
   assert.equal(this,globalThis,'Browser fetch requires the window/global receiver');
   requests.push(url);
   if(url.endsWith('.m3u8'))return Promise.resolve({status:200,ok:true,text:async()=>
-   '#EXTM3U\\n#EXTINF:10,\\nsegment.ts\\n#EXT-X-ENDLIST'});
+   '#EXTM3U\n#EXTINF:10,\nsegment.ts\n#EXT-X-ENDLIST'});
   return Promise.resolve({status:200,ok:true,arrayBuffer:async()=>new Uint8Array([0x47,0,0,0]).buffer});
  };
  try{
@@ -81,7 +81,7 @@ test('native browser fetch is called without binding it to StreamDownloader',asy
 test('injected fetch is called as a plain function, not as downloader method',async()=>{
  let thisValue;
  const fetcher=function(url){thisValue=this;return Promise.resolve({status:200,ok:true,text:async()=>
-  '#EXTM3U\\n#EXTINF:2,\\nseg.ts\\n#EXT-X-ENDLIST'});};
+  '#EXTM3U\n#EXTINF:2,\nseg.ts\n#EXT-X-ENDLIST'});};
  const downloader=new StreamDownloader('https://example.org/video.m3u8',{fetcher});
  await downloader.prepare();
  assert.equal(thisValue,undefined);
