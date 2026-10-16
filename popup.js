@@ -108,7 +108,9 @@ function mediaCard(item,index,{uncertain=false}={}){
  if(item.type==='Video'||item.type==='Audio'||item.type==='Image'){
   const analysis=item.analysis;
   if(analysis?.state==='likely')chips.append(node('span','chip verified','Download provável'));
-  else if(analysis?.state==='partial'||item.status==='blocked')chips.append(node('span','chip warning','Fragmento / indisponível'));
+  else if(analysis?.state==='partial')chips.append(node('span','chip warning','Arquivo parcial'));
+  else if(item.status==='blocked'&&/403|autoriza|acesso|bloquead/i.test(item.message||''))chips.append(node('span','chip warning','Acesso bloqueado'));
+  else if(item.status==='blocked')chips.append(node('span','chip warning','Indisponível'));
   else if(analysis?.state==='unavailable')chips.append(node('span','chip warning','Acesso negado'));
   else if(analysis?.state==='uncertain')chips.append(node('span','chip warning','Não confirmado'));
   else if(item.responseStatus===206)chips.append(node('span','chip warning','Resposta 206'));
@@ -168,6 +170,29 @@ function mediaCard(item,index,{uncertain=false}={}){
   actions.append(cancel);
  }
  card.append(actions);
+ if(item.type==='Video'&&(()=>{
+  try{
+   const p=new URL(tabUrl),u=new URL(item.url);
+   return ['sushianimes.com.br','www.sushianimes.com.br'].includes(p.hostname)&&
+     u.hostname==='cdn-s01.pixel-sus-4k-image.com'&&
+     /\.(mp4|webm)$/i.test(u.pathname);
+  }catch{return false;}
+ })()){
+  const contextual=node('div','media-actions');
+  const viaSite=node('button','download-btn local-download',isRunning?'Processando...':'Tentar download pela página de origem');
+  viaSite.disabled=isRunning;
+  viaSite.onclick=async()=>{
+   viaSite.disabled=true;viaSite.textContent='Conectando...';notify('');
+   try{
+    const res=await chrome.runtime.sendMessage({cmd:'startNativeSource',tabId,id:item.id});
+    if(!res?.ok)throw new Error(res?.error||'Não foi possível usar o assistente.');
+   }catch(e){notify(e.message);}
+   await load();
+  };
+  contextual.append(viaSite);card.append(contextual);
+  card.append(node('div','notice',
+   'Tentativa opcional com a referência da página original. Se o CDN bloquear a transferência, a extensão respeitará a recusa do servidor.'));
+ }
  if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be/.test(tabUrl))){
   const directPage=canonicalMediaPageUrl(item.pageUrl)||canonicalMediaPageUrl(tabUrl);
   const priorPasted=pastedPostUrls.get(item.id)||'';
