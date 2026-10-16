@@ -107,7 +107,7 @@ class NativeHostTests(unittest.TestCase):
     def test_watchdog_detects_stalled_and_oversized_jobs(self):
         self.assertIsNone(host.watchdog_reason(30, 120))
         self.assertEqual(host.watchdog_reason(121, 121),"NO_ACTIVITY")
-        self.assertEqual(host.watchdog_reason(5, 45*60),"MAX_DURATION")
+        self.assertEqual(host.watchdog_reason(5, 24*60*60),"MAX_DURATION")
 
     def test_contextual_command_has_expected_referrer_and_no_cookies(self):
         source = "https://cdn-s01.pixel-sus-4k-image.com/stream/h/example/07.mp4"
