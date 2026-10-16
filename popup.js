@@ -128,7 +128,7 @@ function mediaCard(item,index,{uncertain=false}={}){
  const candidates=item.type==='Player'?possibleSources(item):[];
  const button=node('button','download-btn',isRunning?'Verificando / baixando...':blocked?'Verificar novamente':item.status==='done'?'Baixar novamente':
   (item.type==='HLS'?'Baixar stream':item.analysis?.canDownload?`Baixar ${names[kind]?.toLowerCase()||'arquivo'}`:'Verificar e baixar'));
- const formatMissing=item.type!=='HLS'&&item.type!=='DASH'&&!ext;
+ const formatMissing=!['HLS','DASH','Player'].includes(item.type)&&!ext;
  if(item.type==='Player')button.textContent=candidates.length?
   `Buscar fontes de download (${candidates.length})`:'Procurar fonte do vídeo';
  if(item.type==='DASH')button.textContent='DASH indisponível';
