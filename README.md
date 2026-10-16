@@ -1,4 +1,25 @@
-# Media Finder Pro · v1.10.1
+# Media Finder Pro · v1.10.2
+
+## Correção do HLS recusado por HTTP 403 no TopAnimes
+
+Na versão anterior, o botão **Baixar stream** continuava usando o `fetch` do documento offscreen, mesmo quando essa requisição já tinha recebido HTTP 403. O card mostrava um segundo botão para o assistente local, mas a ação principal fazia o usuário repetir o erro.
+
+A versão **1.10.2** usa uma política explícita de escolha de método:
+
+- **Playlist HLS identificada no par TopAnimes/CDN conhecido:** a ação principal é **Baixar com assistente local**, enviando somente a fonte já observada e a referência da página. O botão duplicado é removido.
+- **HLS de outros sites:** mantém o fluxo de download no navegador quando o servidor permite, respeitando erros de autorização e DRM.
+- **URL temporária expirada:** a ação de baixar fica desabilitada e a extensão solicita atualizar a reprodução para receber um link novo. O parâmetro `expires` é reconhecido em segundos ou milissegundos.
+- **Estado antigo de erro:** ao atualizar da v1.10.1, o erro de playlist recusada do método navegador é limpo sem apagar a lista de mídias.
+
+A política de origens admitidas permanece restrita no assistente. Uma resposta HTTP 403 também pode ocorrer no yt-dlp: nesse caso o servidor ainda não permitiu a transferência, e o programa explica a falha em vez de afirmar que realizou o download. Não há remoção de DRM ou contorno de desafios de proteção.
+
+### Atualizar
+
+Execute `git pull origin main`, abra `brave://extensions` e clique em **Recarregar**. Atualize também a página do episódio para obter fontes recentes. Confira **v1.10.2** no rodapé. **Não é necessário recompilar `mediafinder_native.exe`**: somente arquivos da extensão foram modificados.
+
+Os testes incluem roteamento entre navegador e assistente local, validade do par página/CDN, links assinados de 10/13 dígitos e HLS com timeout/HTTP 403. A verificação no servidor real deve ser feita pelo usuário, pois autorização e disponibilidade mudam.
+
+---
 
 ## Correção do erro "Failed to execute 'fetch' on 'Window': Illegal invocation"
 
