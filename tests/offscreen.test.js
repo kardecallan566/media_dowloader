@@ -12,9 +12,10 @@ function createOffscreenHarness(){
  class StubStream {
   constructor(){this.controller=new AbortController();}
   async prepare(){return {segments:[{url:'https://cdn.example/1.ts'}]};}
-  async download(progress){
+  async downloadToWriter(writer,progress){
+   await writer.write(new Uint8Array([0x47,0,0,0]));
    progress({done:1,total:1,bytes:4});
-   return {blob:new Blob([new Uint8Array([0x47,0,0,0])]),extension:'ts'};
+   return {bytes:4,extension:'ts'};
   }
   cancel(){this.controller.abort();}
  }
@@ -27,7 +28,12 @@ function createOffscreenHarness(){
   StreamDownloader:StubStream,
   parseRange:()=>null,
   validateCompleteVideo:()=>({ok:true}),
-  downloadRanges:async()=>new Uint8Array(0),RANGE_MAX_BYTES:96*1024*1024,
+  downloadRangesToWriter:async()=>({bytes:0}),
+  openTemporaryMedia:async()=>({
+   writer:{write:async()=>{}},
+   finish:async()=>({file:new Blob([new Uint8Array([0x47,0,0,0])]),cleanup:async()=>{}}),
+   cleanup:async()=>{}
+  }),
   chrome:{
    runtime:{
     onMessage:{addListener:fn=>listener=fn},
