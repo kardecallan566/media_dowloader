@@ -86,6 +86,26 @@ function possibleSources(player){
  }).slice(0,8);
 }
 
+function contextualSourceAvailable(item){
+ if(!['Video','HLS'].includes(item.type))return false;
+ try{
+  const page=new URL(tabUrl),source=new URL(item.url);
+  if(page.protocol!=='https:'||source.protocol!=='https:')return false;
+  const origin=page.hostname.replace(/^www\./,'');
+  return (origin==='sushianimes.com.br'&&item.type==='Video'&&
+    source.hostname==='cdn-s01.pixel-sus-4k-image.com'&&/\.(mp4|webm)$/i.test(source.pathname))||
+    (origin==='topanimes.net'&&item.type==='HLS'&&
+    source.hostname==='doce-de-leite-vegano.b-cdn.net'&&/\.m3u8$/i.test(source.pathname));
+ }catch{return false;}
+}
+function hlsExpired(item){
+ if(item.type!=='HLS')return false;
+ try{
+  const raw=new URL(item.url).searchParams.get('expires');
+  return /^\d{10}$/.test(raw||'')&&Number(raw)*1000 <= Date.now()+15000;
+ }catch{return false;}
+}
+
 function mediaCard(item,index,{uncertain=false}={}){
  const kind=group(item.type);
  const card=node('article','media-card');
@@ -133,6 +153,7 @@ function mediaCard(item,index,{uncertain=false}={}){
  const actions=node('div','media-actions');
  const isRunning=['checking','running','saving','downloading','native-connecting','native-running'].includes(item.status);
  const blocked=item.type==='Player'||item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
+ const inaccessibleHls=item.type==='HLS'&&(/HTTP 40[13]/i.test(item.message||'')||hlsExpired(item));
  const candidates=item.type==='Player'?possibleSources(item):[];
  const button=node('button','download-btn',isRunning?'Verificando / baixando...':blocked?'Verificar novamente':item.status==='done'?'Baixar novamente':
   (item.type==='HLS'?'Baixar stream':item.analysis?.canDownload?`Baixar ${names[kind]?.toLowerCase()||'arquivo'}`:'Verificar e baixar'));
@@ -140,8 +161,9 @@ function mediaCard(item,index,{uncertain=false}={}){
  if(item.type==='Player')button.textContent=candidates.length?
   `Buscar fontes de download (${candidates.length})`:'Procurar fonte do vídeo';
  if(item.type==='DASH')button.textContent='DASH indisponível';
+ if(inaccessibleHls)button.textContent=hlsExpired(item)?'Playlist expirada — atualize a página':'Playlist recusada — veja alternativa abaixo';
  if(formatMissing)button.textContent='Formato indisponível';
- button.disabled=isRunning||item.type==='DASH'||(formatMissing&&item.type!=='Player');
+ button.disabled=isRunning||inaccessibleHls||item.type==='DASH'||(formatMissing&&item.type!=='Player');
  button.title=item.type==='Player'?'Abrir possíveis fontes; é necessário conferir se pertencem ao vídeo atual.':
   item.type==='DASH'?'O formato DASH precisa de um muxer de áudio e vídeo.':
   formatMissing?'Não foi possível identificar a extensão do arquivo.':'';
@@ -173,17 +195,14 @@ function mediaCard(item,index,{uncertain=false}={}){
   actions.append(cancel);
  }
  card.append(actions);
- if(item.type==='Video'&&(()=>{
-  try{
-   const p=new URL(tabUrl),u=new URL(item.url);
-   return ['sushianimes.com.br','www.sushianimes.com.br'].includes(p.hostname)&&
-     u.hostname==='cdn-s01.pixel-sus-4k-image.com'&&
-     /\.(mp4|webm)$/i.test(u.pathname);
-  }catch{return false;}
- })()){
+ if(contextualSourceAvailable(item)){
   const contextual=node('div','media-actions');
-  const viaSite=node('button','download-btn local-download',isRunning?'Processando...':'Tentar download pela página de origem');
-  viaSite.disabled=isRunning;
+  const expired=hlsExpired(item);
+  const viaSite=node('button','download-btn local-download',
+    isRunning?'Processando pelo assistente local...':
+    expired?'Link temporário expirado':
+    item.type==='HLS'?'Tentar playlist via assistente local':'Tentar download pela página de origem');
+  viaSite.disabled=isRunning||expired;
   viaSite.onclick=async()=>{
    viaSite.disabled=true;viaSite.textContent='Conectando...';notify('');
    try{
@@ -193,8 +212,9 @@ function mediaCard(item,index,{uncertain=false}={}){
    await load();
   };
   contextual.append(viaSite);card.append(contextual);
-  card.append(node('div','notice',
-   'Tentativa opcional com a referência da página original. Se o CDN bloquear a transferência, a extensão respeitará a recusa do servidor.'));
+  card.append(node('div','notice',expired?
+   'A playlist possui um token expirado. Recarregue o episódio no site antes de tentar novamente.':
+   'Alternativa manual usando a referência da página onde o vídeo foi reproduzido. Se o CDN recusar, o assistente encerrará a tentativa e explicará o erro.'));
  }
  if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be/.test(tabUrl))){
   const directPage=canonicalMediaPageUrl(item.pageUrl)||canonicalMediaPageUrl(tabUrl);
