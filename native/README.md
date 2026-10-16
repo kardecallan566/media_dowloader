@@ -2,7 +2,7 @@
 
 O Media Finder Pro funciona sozinho para URLs de arquivo e HLS VOD compatíveis. Para páginas que apenas oferecem um player `blob:/MSE` ou vídeo/áudio separados, o **assistente local opcional** pode tentar obter o arquivo original e montar vídeo + áudio corretamente com **yt-dlp + FFmpeg**.
 
-Ele **não** captura/grava a reprodução, não remove DRM, não usa cookies automaticamente e não consegue garantir todos os vídeos. Funciona inicialmente com URLs HTTPS do Instagram, YouTube e YouTube Shorts que estejam acessíveis para o usuário.
+Ele **não** captura/grava a reprodução, não remove DRM e não consegue garantir todos os vídeos. O uso de cookies do Brave é **opcional e depende de autorização explícita a cada download**; a configuração padrão não usa cookies. Funciona inicialmente com URLs HTTPS do Instagram, YouTube e YouTube Shorts que estejam acessíveis para o usuário.
 
 ## Pré-requisitos
 
@@ -29,8 +29,8 @@ powershell -ExecutionPolicy Bypass -File .\native\install.ps1 -ExtensionId COLE_
 ```
 
 4. O script escolhe automaticamente `python` ou `py`, cria um ambiente de compilação isolado sem exigir ativação manual e então compila `native/host.py` localmente para `native/dist/mediafinder_native.exe`, registra um arquivo Native Messaging em `HKCU` para Chrome/Brave e limita a conexão ao ID da extensão que você informou. Não precisa de privilégios administrativos.
-5. Reinicie completamente o Brave/Chrome, atualize a aba e abra a extensão.
-6. Em um player detectado do Instagram/YouTube, clique em **Baixar completo com assistente local**. Os arquivos produzidos ficam em `Downloads/MediaFinder`.
+5. Após toda atualização do código do assistente (`native/host.py`), execute novamente o instalador para **recompilar o EXE**: `git pull origin main` e o comando de instalação acima. Reinicie completamente o Brave/Chrome, atualize a aba e abra a extensão.
+6. No Instagram, primeiro abra a publicação/Reel em seu link próprio (ex.: `https://www.instagram.com/reel/ABC123/`). A homepage `instagram.com/` e páginas de perfil não são URLs de vídeo válidas. Em seguida, clique em **Baixar publicação com assistente local**. Os arquivos produzidos ficam em `Downloads/MediaFinder`.
 
 **A instalação é opcional.** Sem o assistente, o botão informa um erro de conexão e os downloads diretos da extensão continuam funcionando.
 
@@ -39,13 +39,13 @@ powershell -ExecutionPolicy Bypass -File .\native\install.ps1 -ExtensionId COLE_
 - Não há servidor HTTP local, credenciais de API nem coleta externa de dados da extensão.
 - O navegador comunica-se apenas com o executável registrado por Native Messaging; o host aceita comandos com URLs HTTPS de Instagram/YouTube.
 - O usuário inicia cada tentativa manualmente. O host só executa yt-dlp/FFmpeg com uma lista fixa de argumentos, **sem shell**.
-- Não são carregados cookies do navegador, credenciais ou dados de login automaticamente.
+- A leitura de cookies **não é automática**: só ocorre ao marcar `Usar sessão do Brave neste download`. Essa opção usa `yt-dlp --cookies-from-browser brave`, que pode ter acesso à sessão do navegador; utilize somente se confiar no assistente local e tiver autorização para obter o conteúdo. O Brave pode impedir a extração por mecanismos de proteção de cookies. Não existe garantia de acesso.
 - O host e as dependências se conectam às plataformas para obter mídia, sujeitos aos controles de acesso e direitos aplicáveis.
 - Use somente vídeos que você pode baixar. Vídeos com DRM, conteúdo não disponibilizado ao usuário ou bloqueios de acesso não são contornados.
 
 ## Limites
 
-- Se um vídeo exige sessão autenticada, não há suporte a importação automática de cookies. O host pode não conseguir baixá-lo.
+- Se o vídeo exige login, tente a opção de sessão do Brave **somente com consentimento explícito**. A extração pode falhar no Windows devido à proteção de cookies; isso não será contornado.
 - A instalação precisa ser repetida se o ID da extensão mudar, por exemplo ao carregar o projeto de outra pasta.
 - Atualizações de Instagram/YouTube podem exigir nova versão do yt-dlp: `scoop update yt-dlp`.
 - Downloads grandes consomem armazenamento e podem falhar; a lógica do host informa o erro.
@@ -56,6 +56,13 @@ powershell -ExecutionPolicy Bypass -File .\native\install.ps1 -ExtensionId COLE_
 Versões antigas do `install.ps1` só aceitavam o comando `py`. Se você instalou Python pelo Scoop, `python` pode funcionar perfeitamente sem existir `py`. Execute `git pull origin main` para receber a versão corrigida, instale Python pelo Scoop se necessário e repita o comando de instalação. A pasta `.venv` não precisa existir; o script cria `native/.build-venv` automaticamente.
 
 Se o PowerShell mostrar caracteres estranhos como `nÃ£o`, isso é apenas uma diferença de codificação do terminal. O instalador atualizado usa mensagens ASCII para evitar esse problema.
+
+## Diagnóstico do Instagram
+
+- **Unsupported URL: https://www.instagram.com/**: abra a postagem/Reel para obter um link /reel/... ou /p/...; o assistente 1.7 bloqueia essa tentativa antes de chamar o yt-dlp.
+- **Login required / cookies**: o download sem autenticação não foi permitido. Com sua autorização, marque a opção de sessão do Brave naquele download. O navegador pode bloquear a leitura dos cookies.
+- **Aparece o erro antigo apesar do código novo**: `git pull origin main` não recompila o executável instalado. Execute novamente `native/install.ps1` e feche/reabra o Brave.
+- Se o link da publicação não puder ser associado unicamente ao player do feed, a extensão não tenta adivinhar.
 
 ## Solução de problemas
 
