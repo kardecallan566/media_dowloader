@@ -1,4 +1,23 @@
-# Media Finder Pro · v1.9.0
+# Media Finder Pro · v1.10.0
+
+## Correções de estabilidade para sites de vídeo
+
+- **Downloads travados:** o assistente local agora envia atividade durante a espera pela resposta e encerra processos que ficarem 120 segundos sem atividade. Também estabelece limite máximo de 45 minutos por tentativa, retries de rede limitados e cancelamento com término dos processos relacionados.
+- **HLS com HTTP 403:** uma playlist que responde com 200 ao player pode responder 403 ao downloader executado em outro contexto. A extensão identifica essa diferença, não insiste repetidamente em uma resposta recusada e apresenta uma alternativa manual quando disponível.
+- **TopAnimes (par conhecido):** para playlists HLS observadas na aba `topanimes.net` no host `doce-de-leite-vegano.b-cdn.net`, foi adicionada a opção **Tentar playlist via assistente local** usando a página original como referência. Essa tentativa depende da autorização do CDN: não remove DRM, não resolve CAPTCHA e não ignora bloqueios de acesso.
+- **Links HLS temporários:** URLs com o parâmetro `expires` em formato de timestamp conhecido são identificadas como expiradas quando aplicável. Atualize a página para renovar links expirados.
+- **MP4 do SushiAnimes:** manteve a tentativa contextual já existente, mas sem carregamento indefinido. O HTML fornecido pelo usuário confirma uma URL MP4 em um JW Player; não confirma que o servidor autorize download separado.
+- **Cancelamento:** downloads MP4/HLS e trabalhos nativos agora recebem a solicitação de cancelamento; o assistente encerra os processos associados e o popup atualiza o estado.
+
+### Como atualizar
+
+No diretório do projeto, execute `git pull origin main`, recarregue a extensão e a aba no Brave. Como o executável nativo foi alterado, execute novamente `native/install.ps1` com o mesmo ID da extensão para recompilar o assistente local, feche e reabra o navegador. Confirme **v1.10.0** no rodapé.
+
+Para validar: abra o player, escolha a aba **Vídeos**, use o botão nativo contextual da fonte identificada. Se o CDN negar acesso (403), a extensão encerrará a tentativa informando o bloqueio. Não é garantido que a mídia disponível para streaming incorporado possa ser obtida como arquivo.
+
+Os testes automáticos verificam parsing HLS, erros HTTP, timeout de requisições, links expirados, seleção de pares de origem permitidos e watchdog do processo nativo. Testes reais nos dois sites dependem da sessão do usuário e não são simulados como sucesso.
+
+---
 
 ## Correção: sessão do Brave não pode ser lida
 
