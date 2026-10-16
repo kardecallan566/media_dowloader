@@ -101,20 +101,57 @@ export function parseMedia(text, url) {
   return { segments, extension: ext, isVod: true };
 }
 
+export function playlistExpiry(url, now=Date.now()) {
+ try {
+  const raw=new URL(url).searchParams.get('expires');
+  if(!raw||!/^[0-9]{10}$/.test(raw))return null;
+  return Number(raw)*1000 <= now+15000 ? 'expired' : 'valid';
+ }catch{return null;}
+}
+
 export class StreamDownloader {
-  constructor(url, { concurrency = 4, maxBytes = 450 * 1024 * 1024 } = {}) {
+  constructor(url, { concurrency = 4, maxBytes = 450 * 1024 * 1024,
+    fetcher=fetch, requestTimeoutMs=25000 } = {}) {
     this.url = absoluteUrl(url, url);
     this.concurrency = concurrency;
     this.maxBytes = maxBytes;
     this.controller = new AbortController();
+    this.fetcher=fetcher;
+    this.requestTimeoutMs=requestTimeoutMs;
     this.parsed = null;
     this.variants = [];
   }
 
+  async timedRequest(url, options, readBody) {
+    if(this.controller.signal.aborted)throw new Error('Download cancelado.');
+    const local=new AbortController();
+    const abort=()=>local.abort();
+    this.controller.signal.addEventListener('abort',abort,{once:true});
+    const timeout=setTimeout(()=>local.abort(),this.requestTimeoutMs);
+    try {
+      const response=await this.fetcher(url,{...options,credentials:'include',signal:local.signal});
+      return await readBody(response);
+    }catch(error){
+      if(this.controller.signal.aborted)throw new Error('Download cancelado.');
+      if(local.signal.aborted)throw new Error('A fonte não respondeu em '+Math.round(this.requestTimeoutMs/1000)+' segundos.');
+      throw error;
+    }finally{
+      clearTimeout(timeout);
+      this.controller.signal.removeEventListener('abort',abort);
+    }
+  }
+
   async fetchText(url) {
-    const res = await fetch(url, { credentials: 'include', signal: this.controller.signal });
-    if (!res.ok) throw new Error(`Erro HTTP ${res.status} na playlist. Verifique autorização/expiração.`);
-    return res.text();
+    if(playlistExpiry(url)==='expired')
+      throw new Error('O link HLS expirou. Recarregue a página e capture uma playlist nova.');
+    return this.timedRequest(url,{},async res=>{
+      if(res.status===401||res.status===403)
+        throw new Error('HTTP '+res.status+' na playlist: o servidor recusou a requisição fora do player. Uma resposta anterior no navegador não garante permissão de download.');
+      if(!res.ok)throw new Error('Erro HTTP '+res.status+' na playlist. Atualize a página e verifique a disponibilidade.');
+      const data=await res.text();
+      if(data.length>4*1024*1024)throw new Error('Manifesto HLS grande demais.');
+      return data;
+    });
   }
 
   async inspect(url = this.url) {
@@ -145,24 +182,26 @@ export class StreamDownloader {
   }
 
   async requestPart(part) {
-    const headers = part.range ? { Range: `bytes=${part.range[0]}-${part.range[1]}` } : {};
+    const headers=part.range?{Range:`bytes=${part.range[0]}-${part.range[1]}`}:{};
     let lastError;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const response = await fetch(part.url, {
-          credentials: 'include', headers, signal: this.controller.signal
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        return await this.timedRequest(part.url,{headers},async response=>{
+          if(response.status===401||response.status===403){
+            const error=new Error('HTTP '+response.status+' no segmento. O CDN negou a transferência.');
+            error.accessDenied=true;
+            throw error;
+          }
+          if(!response.ok)throw new Error('HTTP '+response.status+' no segmento.');
+          if(part.range&&response.status!==206)throw new Error('Servidor ignorou Range; não é seguro concatenar.');
+          const bytes=new Uint8Array(await response.arrayBuffer());
+          if(!bytes.length)throw new Error('Segmento vazio.');
+          return bytes;
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status} no segmento`);
-        if (part.range && response.status !== 206) {
-          throw new Error('Servidor ignorou Range; não é seguro concatenar o arquivo inteiro.');
-        }
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (!bytes.length) throw new Error('Segmento vazio.');
-        return bytes;
-      } catch (err) {
-        lastError = err;
-        if (this.controller.signal.aborted) throw err;
-        if (attempt !== 2) await new Promise(resolve => setTimeout(resolve, 350 * (attempt + 1)));
+      }catch(error){
+        lastError=error;
+        if(this.controller.signal.aborted||error.accessDenied)throw error;
+        if(attempt!==2)await new Promise(resolve=>setTimeout(resolve,350*(attempt+1)));
       }
     }
     throw lastError;
