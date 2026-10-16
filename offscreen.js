@@ -5,23 +5,29 @@ import { downloadRanges, RANGE_MAX_BYTES } from './range-downloader.js';
 const jobs = new Map();
 const emit = (tabId, patch) => chrome.runtime.sendMessage({cmd:'jobUpdate',tabId,patch}).catch(() => {});
 
-function releaseWhenChromeFinishes(downloadId, blobUrl) {
- let released=false;
- const cleanup=()=>{
-  if(released)return;
-  released=true;
-  chrome.downloads.onChanged.removeListener(onChanged);
-  clearTimeout(timeout);
-  URL.revokeObjectURL(blobUrl);
- };
- const onChanged=delta=>{
-  if(delta.id===downloadId && ['complete','interrupted'].includes(delta.state?.current))cleanup();
- };
- const timeout=setTimeout(cleanup,30*60*1000);
- chrome.downloads.onChanged.addListener(onChanged);
- chrome.downloads.search({id:downloadId}).then(([item])=>{
-  if(item && ['complete','interrupted'].includes(item.state))cleanup();
- }).catch(()=>{});
+// Offscreen documents have chrome.runtime, but not the chrome.downloads API.
+// Chrome download actions belong to the extension service worker.
+const savedBlobs = new Map();
+function keepBlobUntilSaved(downloadId,url){
+ const timeout=setTimeout(()=>freeBlob(downloadId),30*60*1000);
+ savedBlobs.set(downloadId,{url,timeout});
+}
+function freeBlob(downloadId){
+ const entry=savedBlobs.get(downloadId);
+ if(!entry)return;
+ savedBlobs.delete(downloadId);
+ clearTimeout(entry.timeout);
+ URL.revokeObjectURL(entry.url);
+}
+async function saveBlob(message,blobUrl,filename){
+ const result=await chrome.runtime.sendMessage({
+  cmd:'saveBlobDownload',tabId:message.tabId,id:message.id,url:blobUrl,filename
+ });
+ if(!result?.ok||!Number.isInteger(result.downloadId))
+  throw new Error(result?.error||'Não foi possível salvar o arquivo pelo Chrome.');
+ keepBlobUntilSaved(result.downloadId,blobUrl);
+ if(result.state==='complete'||result.state==='interrupted')freeBlob(result.downloadId);
+ return result.downloadId;
 }
 
 
@@ -112,15 +118,8 @@ async function runDirectVideo(message,controller){
   emit(message.tabId,{id:message.id,status:'saving',progress:96,
    message:'Vídeo reproduzível ('+duration.toFixed(1)+'s). Salvando...'});
   const safe=(message.title||'video').normalize('NFKD').replace(/[^A-Za-z0-9_-]/g,'_').slice(0,70)||'video';
-  const downloadId=await chrome.downloads.download({url:objectUrl,
-   filename:'MediaFinder/'+safe+'_'+message.id.slice(0,6)+'.'+message.extension,saveAs:false,conflictAction:'uniquify'});
+  await saveBlob(message,objectUrl,'MediaFinder/'+safe+'_'+message.id.slice(0,6)+'.'+message.extension);
   downloadStarted=true;
-  releaseWhenChromeFinishes(downloadId,objectUrl);
-  await emit(message.tabId,{id:message.id,status:'downloading',progress:99,downloadId,
-   message:'Vídeo validado. Salvando na pasta Downloads...'});
-  const [file]=await chrome.downloads.search({id:downloadId});
-  if(file?.state==='complete')
-   await emit(message.tabId,{id:message.id,status:'done',progress:100,message:'Vídeo íntegro salvo com sucesso.'});
  }catch(error){
   if(objectUrl&&!downloadStarted)URL.revokeObjectURL(objectUrl);
   emit(message.tabId,{id:message.id,status:controller.signal.aborted?'canceled':'blocked',
@@ -129,6 +128,11 @@ async function runDirectVideo(message,controller){
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(message.cmd==='savedBlobFinished'){
+   freeBlob(message.downloadId);
+   respond({ok:true});
+   return;
+  }
   if (message.cmd === 'cancelJob') {
     jobs.get(message.id)?.cancel();
     respond({ok:true});
@@ -159,19 +163,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       emit(message.tabId,{id:message.id,status:'saving',progress:97,message:'Salvando arquivo...'});
       const url = URL.createObjectURL(result.blob);
       try {
-        const safe = (message.title || 'video').normalize('NFKD').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,90);
-        const downloadId = await chrome.downloads.download({
-          url,filename:`MediaFinder/${safe || 'video'}.${result.extension}`,saveAs:false,conflictAction:'uniquify'
-        });
-        releaseWhenChromeFinishes(downloadId,url);
-        await emit(message.tabId,{id:message.id,status:'downloading',progress:99,downloadId,
-          message:'Salvando arquivo no gerenciador do Chrome...'});
-        const [entry]=await chrome.downloads.search({id:downloadId});
-        if(entry?.state==='complete')await emit(message.tabId,{id:message.id,status:'done',progress:100,
-          message:'Arquivo salvo na pasta Downloads.'});
-        else if(entry?.state==='interrupted')await emit(message.tabId,{id:message.id,status:'error',
-          message:'Transferência interrompida pelo navegador.'});
-      } catch(error) {
+        const safe=(message.title||'video').normalize('NFKD').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,90);
+        await saveBlob(message,url,`MediaFinder/${safe||'video'}.${result.extension}`);
+      }catch(error){
         URL.revokeObjectURL(url);
         throw error;
       }
