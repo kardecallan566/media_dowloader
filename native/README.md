@@ -57,6 +57,14 @@ Versões antigas do `install.ps1` só aceitavam o comando `py`. Se você instalo
 
 Se o PowerShell mostrar caracteres estranhos como `nÃ£o`, isso é apenas uma diferença de codificação do terminal. O instalador atualizado usa mensagens ASCII para evitar esse problema.
 
+## Nova tentativa contextual (versão 1.8)
+
+Quando o site original autoriza a reprodução incorporada, o vídeo pode estar disponível somente na sessão/contexto daquela página. A extensão oferece uma tentativa manual, restrita ao par `sushianimes.com.br` e `cdn-s01.pixel-sus-4k-image.com`, transmitindo ao yt-dlp o endereço da página de origem como `Referer`. Se houver um bloqueio HTTP 403 ou desafio de proteção do servidor, não há tentativa de contornar a restrição: a falha é comunicada.
+
+Para Instagram, se o player aparece no feed mas não tem URL específica, copie o link de compartilhamento do Reel/post e cole no campo da extensão. O assistente aceita somente permalinks válidos.
+
+**Recompile o assistente após atualizar o repositório**, executando novamente o instalador; `git pull` não recompila o executável.
+
 ## Diagnóstico do Instagram
 
 - **Unsupported URL: https://www.instagram.com/**: abra a postagem/Reel para obter um link /reel/... ou /p/...; o assistente 1.7 bloqueia essa tentativa antes de chamar o yt-dlp.
