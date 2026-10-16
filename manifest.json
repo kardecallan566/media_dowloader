@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Detecta vídeos, busca arquivos completos e permite muxing opcional com assistente local.",
-  "version": "1.6.0",
+  "description": "Detecta vídeo e associa corretamente Reels/posts para downloads locais autorizados.",
+  "version": "1.7.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
