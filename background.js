@@ -288,7 +288,10 @@ async function startNativeDownload(tabId,id,consent=false) {
  if(tab.url){
   const tabHost=new URL(tab.url).hostname.replace(/^www\./,'');
   const targetHost=new URL(url).hostname.replace(/^www\./,'');
-  if(!(tabHost===targetHost||(tabHost==='youtu.be'&&targetHost==='youtube.com')))
+  const instagram=host=>host==='instagram.com';
+  const youtube=host=>['youtube.com','m.youtube.com','music.youtube.com','youtu.be','youtube-nocookie.com'].includes(host);
+  if(!(tabHost===targetHost||(instagram(tabHost)&&instagram(targetHost))||
+    (youtube(tabHost)&&youtube(targetHost))))
    throw new Error('O link detectado não pertence à página atual.');
  }
  await patchMedia(tabId,id,{status:'native-connecting',progress:0,message:'Conectando ao assistente local...'});
@@ -407,7 +410,8 @@ chrome.tabs.onUpdated.addListener((id,changes)=>{
  if(changes.url)clearTab(id).catch(console.warn);
 });
 chrome.runtime.onInstalled.addListener(details=>{
- if(details.reason==='update'&&String(details.previousVersion||'').startsWith('1.2.')){
+ if(details.reason==='update'&&
+   (String(details.previousVersion||'').startsWith('1.2.')||details.previousVersion==='1.6.0')){
   // Old 1.2 network entries were not source-tagged and flood the new interface.
   chrome.storage.local.remove(STORE).catch(console.warn);
  }
