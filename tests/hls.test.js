@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMedia, parseMaster } from '../hls-downloader.js';
+import { parseMedia, parseMaster, StreamDownloader, playlistExpiry } from '../hls-downloader.js';
 
 test('HLS VOD detects complete TS segments', () => {
  const out=parseMedia('#EXTM3U\n#EXTINF:4,\na.ts\n#EXTINF:4,\nb.ts\n#EXT-X-ENDLIST', 'https://example.org/hls/list.m3u8');
@@ -25,4 +25,34 @@ test('encrypted HLS refuses corrupt output', () => {
 test('byte range offsets are preserved', () => {
  const out=parseMedia('#EXTM3U\n#EXT-X-BYTERANGE:4@0\nfile.ts\n#EXT-X-BYTERANGE:4\nfile.ts\n#EXT-X-ENDLIST','https://example.org/index.m3u8');
  assert.deepEqual(out.segments.map(s=>s.range),[[0,3],[4,7]]);
+});
+
+test('Signed playlist expiration is recognized conservatively',()=>{
+ assert.equal(playlistExpiry('https://example.org/hls.m3u8?expires=1700000000',1800000000000),'expired');
+ assert.equal(playlistExpiry('https://example.org/hls.m3u8?expires=1893456000',1800000000000),'valid');
+ assert.equal(playlistExpiry('https://example.org/hls.m3u8?token=abc',1800000000000),null);
+});
+test('HLS access denial is identified without retrying protected playlist',async()=>{
+ let fetches=0;
+ const job=new StreamDownloader('https://cdn.example.org/play.m3u8',{
+  fetcher:async()=>{fetches++;return {status:403,ok:false};},requestTimeoutMs:100
+ });
+ await assert.rejects(job.prepare(),/HTTP 403 na playlist/);
+ assert.equal(fetches,1);
+});
+test('HLS playlist hangs are interrupted after finite timeout',async()=>{
+ const job=new StreamDownloader('https://cdn.example.org/play.m3u8',{
+  fetcher:(url,{signal})=>new Promise((resolve,reject)=>{
+   signal.addEventListener('abort',()=>reject(Object.assign(new Error('Abort'),{name:'AbortError'})),{once:true});
+  }),requestTimeoutMs:20
+ });
+ await assert.rejects(job.prepare(),/não respondeu em 0 segundos|não respondeu em 1 segundos/);
+});
+test('HLS segment access denied does not burn all retries',async()=>{
+ let count=0;
+ const job=new StreamDownloader('https://cdn.example.org/hls.m3u8',{
+  fetcher:async()=>{count++;return {status:403,ok:false};},requestTimeoutMs:100
+ });
+ await assert.rejects(job.requestPart({url:'https://cdn.example.org/part.ts',range:null}),/HTTP 403 no segmento/);
+ assert.equal(count,1);
 });
