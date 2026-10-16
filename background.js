@@ -11,6 +11,7 @@ const validTab=id=>Number.isInteger(id)&&id>=0;
 const clean=s=>String(s||'').replace(/[\u0000-\u001f]/g,' ').trim().slice(0,160);
 const running=s=>['checking','running','downloading','saving','native-connecting','native-running'].includes(s);
 const nativePorts=new Map();
+const offscreenDownloadIds=new Set();
 
 async function updateBadge(tabId,list) {
  if(!validTab(tabId))return;
@@ -434,6 +435,7 @@ async function saveOffscreenBlob(msg,sender){
  const downloadId=await chrome.downloads.download({
   url:msg.url,filename:msg.filename,saveAs:false,conflictAction:'uniquify'
  });
+ offscreenDownloadIds.add(downloadId);
  await patchMedia(msg.tabId,msg.id,{status:'downloading',progress:99,downloadId,
   message:'Arquivo montado; salvando pelo gerenciador do navegador...'});
  const [entry]=await chrome.downloads.search({id:downloadId});
@@ -442,6 +444,8 @@ async function saveOffscreenBlob(msg,sender){
  }else if(entry?.state==='interrupted'){
   await patchMedia(msg.tabId,msg.id,{status:'error',message:'O Chrome interrompeu o salvamento.'});
  }
+ if(['complete','interrupted'].includes(entry?.state)&&offscreenDownloadIds.delete(downloadId))
+  chrome.runtime.sendMessage({cmd:'savedBlobFinished',downloadId}).catch(()=>{});
  return {ok:true,downloadId,state:entry?.state||'in_progress'};
 }
 
@@ -471,7 +475,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
 });
 chrome.downloads.onChanged.addListener(async delta=>{
  if(!delta.state)return;
- if(['complete','interrupted'].includes(delta.state.current))
+ if(['complete','interrupted'].includes(delta.state.current)&&offscreenDownloadIds.delete(delta.id))
   chrome.runtime.sendMessage({cmd:'savedBlobFinished',downloadId:delta.id}).catch(()=>{});
  await serial(async()=>{
   const {mediaStore={}}=await chrome.storage.local.get(STORE);
