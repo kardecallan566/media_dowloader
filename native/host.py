@@ -82,7 +82,8 @@ def command_for_source(url, referrer):
             "--newline", "--restrict-filenames",
             "--referer", referrer,
             "--paths", str(directory),
-            "--output", "%(title).90B__%(id)s.%(ext)s", "--", url]
+            "--output", "%(title).90B__%(id)s.%(ext)s",
+            "--print", "after_move:filepath", "--", url]
 
 
 def write_message(payload):
@@ -131,12 +132,42 @@ def command_for(url, cookies_browser=None):
         "--format", "bv+ba/b",
         "--ffmpeg-location", str(Path(ffmpeg).parent),
         "--paths", str(directory),
-        "--output", "%(title).100B__%(id)s.%(ext)s"
+        "--output", "%(title).100B__%(id)s.%(ext)s",
+        "--print", "after_move:filepath"
     ]
     if cookies_browser == "brave":
         arguments.extend(["--cookies-from-browser", "brave"])
     arguments.extend(["--", url])
     return arguments
+
+
+
+def verify_saved_video(filename):
+    """Accept only a non-empty playable video in the configured Downloads folder."""
+    destination = downloads_directory().resolve()
+    candidate = Path(filename.strip().strip('"')).resolve()
+    if candidate != destination and destination not in candidate.parents:
+        raise RuntimeError("O arquivo informado não está na pasta permitida.")
+    if not candidate.is_file() or candidate.stat().st_size < 16384:
+        raise RuntimeError("O arquivo final não existe ou está pequeno demais para ser vídeo.")
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("FFprobe não encontrado (instale FFmpeg). Não foi possível validar a saída.")
+    probe = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries",
+         "stream=codec_type:format=duration", "-of", "json", str(candidate)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+        text=True, encoding="utf-8", errors="replace", timeout=30, shell=False
+    )
+    if probe.returncode != 0:
+        raise RuntimeError("FFprobe não conseguiu abrir o arquivo: " + (probe.stderr or "")[-150:])
+    info = json.loads(probe.stdout)
+    if not any(stream.get("codec_type") == "video" for stream in info.get("streams", [])):
+        raise RuntimeError("O arquivo salvo não contém uma faixa de vídeo.")
+    duration = info.get("format", {}).get("duration")
+    if duration is not None and (float(duration) < 0.5):
+        raise RuntimeError("A duração do vídeo salvo é inválida.")
+    return candidate
 
 
 def parse_percent(line):
@@ -161,7 +192,12 @@ def run_download(job_id, url, cookies_browser=None, source_referrer=None):
         last = ""
         auth_error = False
         browser_cookie_error = False
+        file_path = None
+        save_root = str(downloads_directory().resolve()).casefold()
         for line in process.stdout:
+            output_line = line.strip().strip('"')
+            if output_line.casefold().startswith(save_root):
+                file_path = output_line
             normalized = line.casefold()
             if any(mark in normalized for mark in ("login required", "log in", "login to", "cookies-to-yt-dlp", "login_required")):
                 auth_error = True
@@ -178,7 +214,14 @@ def run_download(job_id, url, cookies_browser=None, source_referrer=None):
                 last = line.strip()[-350:]
         code = process.wait()
         if code == 0:
-            write_message({"id": job_id, "type": "complete", "message": "Download finalizado. Verifique Downloads/MediaFinder."})
+            try:
+                if not file_path:
+                    raise RuntimeError("O downloader não informou um arquivo concluído para validação.")
+                verified = verify_saved_video(file_path)
+                write_message({"id": job_id, "type": "complete",
+                               "message": "Vídeo validado e salvo em " + str(verified.parent)})
+            except Exception as exc:
+                write_message({"id": job_id, "type": "error", "message": str(exc)[:350]})
         elif code < 0:
             write_message({"id": job_id, "type": "error", "message": "Processo encerrado."})
         else:
