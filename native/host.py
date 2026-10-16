@@ -54,8 +54,23 @@ def allowed_url(value):
 
 
 # A narrowly scoped progressive source workflow; no arbitrary URLs or redirects to private networks.
-SOURCE_PAGE_HOSTS = ("sushianimes.com.br", "www.sushianimes.com.br")
-SOURCE_CDN_HOSTS = ("cdn-s01.pixel-sus-4k-image.com",)
+SOURCE_HOST_PAIRS = {
+    "sushianimes.com.br": {"cdn-s01.pixel-sus-4k-image.com": (".mp4", ".webm")},
+    "topanimes.net": {"doce-de-leite-vegano.b-cdn.net": (".m3u8",)},
+}
+def normalized_source_host(host):
+    return (host or "").lower().removeprefix("www.")
+def source_expired(url, now=None):
+    """Only inspect recognized integer expiry timestamps; never guess token internals."""
+    from urllib.parse import parse_qs
+    from time import time as wall_clock
+    query = parse_qs(urlsplit(url).query)
+    values = query.get("expires")
+    if not values or not values[0].isdigit():
+        return False
+    timestamp = int(values[0])
+    return timestamp > 1_000_000_000 and timestamp <= int(now if now is not None else wall_clock()) + 15
+
 def allowed_source(url, referrer):
     try:
         src = urlsplit(url)
@@ -64,11 +79,12 @@ def allowed_source(url, referrer):
             return False
         if src.username or src.password or src.port or page.username or page.password or page.port:
             return False
-        if (src.hostname or "").lower() not in SOURCE_CDN_HOSTS:
+        page_host = normalized_source_host(page.hostname)
+        cdns = SOURCE_HOST_PAIRS.get(page_host)
+        if not cdns:
             return False
-        if (page.hostname or "").lower() not in SOURCE_PAGE_HOSTS:
-            return False
-        if not src.path.lower().endswith((".mp4", ".webm")):
+        extensions = cdns.get(normalized_source_host(src.hostname))
+        if not extensions or not src.path.lower().endswith(extensions):
             return False
         if not page.path.startswith("/") or not page.path.strip("/"):
             return False
@@ -80,17 +96,26 @@ def allowed_source(url, referrer):
 def command_for_source(url, referrer):
     if not allowed_source(url, referrer):
         raise RuntimeError("Fonte não autorizada para download contextual. Confira a página de origem.")
+    if source_expired(url):
+        raise RuntimeError("Link temporário HLS expirou. Atualize a página e capture a playlist novamente.")
     tool = shutil.which("yt-dlp")
     if not tool:
         raise RuntimeError("yt-dlp não instalado.")
     directory = downloads_directory()
-    return [tool, "--ignore-config", "--no-playlist", "--no-overwrites",
-            "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2",
-            "--newline", "--restrict-filenames",
-            "--referer", referrer,
-            "--paths", str(directory),
-            "--output", "%(title).90B__%(id)s.%(ext)s",
-            "--print", "after_move:filepath", "--", url]
+    arguments = [tool, "--ignore-config", "--no-playlist", "--no-overwrites",
+                 "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2",
+                 "--newline", "--restrict-filenames", "--referer", referrer,
+                 "--paths", str(directory),
+                 "--output", "%(title).90B__%(id)s.%(ext)s",
+                 "--print", "after_move:filepath"]
+    if urlsplit(url).path.lower().endswith(".m3u8"):
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise RuntimeError("FFmpeg é necessário para processar o HLS.")
+        arguments.extend(["--ffmpeg-location", str(Path(ffmpeg).parent),
+                          "--remux-video", "mp4"])
+    arguments.extend(["--", url])
+    return arguments
 
 
 def write_message(payload):
@@ -221,7 +246,7 @@ def failure_message(code, cookie_failed=False, browser=None):
         return ("Esta publicação exige login ou permissão. Sem acesso autorizado, "
                 "não é possível baixar o arquivo.")
     if code == "ACCESS_DENIED":
-        return ("O servidor recusou a transferência. O assistente não ignora controles "
+        return ("O servidor recusou a transferência. Atualize o player para obter um link válido; o assistente não ignora controles "
                 "de acesso ou desafios de proteção.")
     if code == "INVALID_SOURCE":
         return "Endereço de vídeo inválido ou não suportado."
