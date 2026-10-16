@@ -104,3 +104,38 @@ test('all HLS qualities with separate audio fail clearly instead of saving silen
  });
  await assert.rejects(job.prepare(),/áudio separado/);
 });
+
+test('HLS writes a large VOD incrementally without an artificial file-size cap',async()=>{
+ const segmentCount=4;
+ const chunks=[];
+ let progress=[];
+ const manifest='#EXTM3U\n'+Array.from({length:segmentCount},(_,i)=>
+  '#EXTINF:10,\npart'+i+'.ts\n').join('')+'#EXT-X-ENDLIST';
+ const fetcher=async url=>({
+  status:200,ok:true,
+  text:async()=>manifest,
+  arrayBuffer:async()=>new Uint8Array(4096).fill(0x47).buffer
+ });
+ const job=new StreamDownloader('https://media.example.test/film.m3u8',
+  {fetcher,maxBytes:1024});
+ await job.prepare();
+ const result=await job.downloadToWriter({write:async chunk=>{chunks.push(chunk.byteLength);}},
+  p=>progress.push(p));
+ assert.equal(result.bytes,segmentCount*4096);
+ assert.equal(result.extension,'ts');
+ assert.equal(chunks.length,segmentCount);
+ assert.equal(progress.at(-1).done,segmentCount);
+});
+test('selected HLS quality must be one of the advertised master variants',async()=>{
+ const master='#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080\n1080.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=1280x720\n720.m3u8';
+ const media='#EXTM3U\n#EXTINF:4,\none.ts\n#EXT-X-ENDLIST';
+ const calls=[];
+ const job=new StreamDownloader('https://video.test/master.m3u8',{fetcher:async url=>{
+  calls.push(url);return {ok:true,status:200,text:async()=>url.endsWith('/master.m3u8')?master:media};
+ }});
+ await assert.rejects(job.prepare('https://untrusted.test/other.m3u8'),/Qualidade indisponível/);
+ assert.equal(calls.some(u=>u.startsWith('https://untrusted.test')),false);
+ const selected=await job.prepare('https://video.test/720.m3u8');
+ assert.equal(selected.segments.length,1);
+ assert.ok(calls.includes('https://video.test/720.m3u8'));
+});
