@@ -111,7 +111,7 @@ export function playlistExpiry(url, now=Date.now()) {
 
 export class StreamDownloader {
   constructor(url, { concurrency = 4, maxBytes = 450 * 1024 * 1024,
-    fetcher=fetch, requestTimeoutMs=25000 } = {}) {
+    fetcher=(...args)=>globalThis.fetch(...args), requestTimeoutMs=25000 } = {}) {
     this.url = absoluteUrl(url, url);
     this.concurrency = concurrency;
     this.maxBytes = maxBytes;
@@ -129,7 +129,10 @@ export class StreamDownloader {
     this.controller.signal.addEventListener('abort',abort,{once:true});
     const timeout=setTimeout(()=>local.abort(),this.requestTimeoutMs);
     try {
-      const response=await this.fetcher(url,{...options,credentials:'include',signal:local.signal});
+      // A bare browser fetch cannot be invoked with the StreamDownloader instance as `this`.
+      // Calling a local function also keeps dependency-injected fetch mocks independent.
+      const fetchRequest=this.fetcher;
+      const response=await fetchRequest(url,{...options,credentials:'include',signal:local.signal});
       return await readBody(response);
     }catch(error){
       if(this.controller.signal.aborted)throw new Error('Download cancelado.');
