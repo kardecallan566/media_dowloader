@@ -57,6 +57,8 @@ test('offscreen HLS delegates Chrome saving to background, not unavailable chrom
  assert.equal(saved.filename,'MediaFinder/Video.ts');
  assert.ok(saved.url.startsWith('blob:'));
  await fake.send({cmd:'savedBlobFinished',downloadId:42});
+ // Event delivery can win the race against saveBlob()'s promise continuation.
+ await new Promise(resolve=>setImmediate(resolve));
  assert.equal(fake.released.length,1);
  assert.equal(fake.released[0],saved.url);
 });
