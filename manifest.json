@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Detecta vídeo e associa corretamente Reels/posts para downloads locais autorizados.",
-  "version": "1.7.0",
+  "description": "Encontra vídeos, recebe links específicos de posts e diagnostica downloads bloqueados.",
+  "version": "1.8.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
