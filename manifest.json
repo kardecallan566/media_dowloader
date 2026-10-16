@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Encontra vídeos, recebe links específicos de posts e diagnostica downloads bloqueados.",
-  "version": "1.8.0",
+  "description": "Baixa vídeos acessíveis, com tentativas públicas e autenticação opcional via assistente local.",
+  "version": "1.9.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
