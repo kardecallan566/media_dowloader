@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Detecta mídia e oferece downloads verificados, com timeouts e tratamento de HLS e MP4.",
-  "version": "1.10.0",
+  "description": "Detecta mídias e baixa streams HLS compatíveis com chamadas fetch corrigidas.",
+  "version": "1.10.1",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
