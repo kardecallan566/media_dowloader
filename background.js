@@ -335,17 +335,25 @@ async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null) 
 
 async function startNativeSource(tabId,id){
  const item=await getItem(tabId,id);
- if(!item||item.type!=='Video')throw new Error('Escolha um arquivo de vídeo detectado nesta página.');
+ if(!item||!['Video','HLS'].includes(item.type))throw new Error('Escolha um arquivo de vídeo detectado nesta página.');
  if(running(item.status))throw new Error('Já existe uma transferência para este arquivo.');
  const tab=await chrome.tabs.get(tabId);
  const page=new URL(tab.url||'');
  const source=new URL(item.url);
- const permittedPage=['sushianimes.com.br','www.sushianimes.com.br'].includes(page.hostname);
- const permittedSource=source.hostname==='cdn-s01.pixel-sus-4k-image.com'&&
-    /\.(?:mp4|webm)$/i.test(source.pathname);
+ const originHost=page.hostname.replace(/^www\./,'');
+ const permittedPage=originHost==='sushianimes.com.br'||originHost==='topanimes.net';
+ const permittedSource=(originHost==='sushianimes.com.br'&&item.type==='Video'&&
+    source.hostname==='cdn-s01.pixel-sus-4k-image.com'&&/\.(?:mp4|webm)$/i.test(source.pathname))||
+    (originHost==='topanimes.net'&&item.type==='HLS'&&
+    source.hostname==='doce-de-leite-vegano.b-cdn.net'&&/\.m3u8$/i.test(source.pathname));
  if(!permittedPage||!permittedSource||page.protocol!=='https:'||source.protocol!=='https:')
   throw new Error('Download contextual indisponível para esta combinação de página e servidor.');
  if(item.source!=='network'&&item.source!=='page')throw new Error('Fonte não reconhecida nesta aba.');
+ if(item.type==='HLS'){
+  const expiry=new URL(item.url).searchParams.get('expires');
+  if(expiry&&/^\d{10,13}$/.test(expiry)&&Number(expiry)<Date.now()/1000+15)
+   throw new Error('Link HLS temporário expirado. Atualize a página para capturar um novo manifesto.');
+ }
  await patchMedia(tabId,id,{status:'native-connecting',message:'Tentando baixar com a referência da página...',progress:0});
  const port=chrome.runtime.connectNative('com.mediafinder.bridge');
  const state={port,tabId,id,finished:false};
