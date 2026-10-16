@@ -7,7 +7,8 @@ let operations=Promise.resolve();
 const serial=(work)=>{const task=operations.then(work);operations=task.catch(()=>{});return task;};
 const validTab=id=>Number.isInteger(id)&&id>=0;
 const clean=s=>String(s||'').replace(/[\u0000-\u001f]/g,' ').trim().slice(0,160);
-const running=s=>['checking','running','downloading','saving'].includes(s);
+const running=s=>['checking','running','downloading','saving','native-connecting','native-running'].includes(s);
+const nativePorts=new Map();
 
 async function updateBadge(tabId,list) {
  if(!validTab(tabId))return;
@@ -253,9 +254,65 @@ async function startDownload(tabId,id){
   return {ok:true};
  }catch(err){await patchMedia(tabId,id,{status:'error',message:err.message});throw err;}
 }
+function supportedNativePage(url){
+ try{
+  const target=new URL(url);
+  const host=target.hostname.toLowerCase();
+  return target.protocol==='https:'&&
+   ['instagram.com','youtube.com','youtube-nocookie.com','youtu.be']
+    .some(domain=>host===domain||host.endsWith('.'+domain));
+ }catch{return false;}
+}
+async function startNativeDownload(tabId,id) {
+ const item=await getItem(tabId,id);
+ if(!item||item.type!=='Player')throw new Error('Selecione um player de vídeo reconhecido.');
+ if(running(item.status))throw new Error('Já existe um download em andamento.');
+ const tab=await chrome.tabs.get(tabId);
+ const url=tab.url;
+ if(!supportedNativePage(url))throw new Error('O assistente local está disponível para páginas do Instagram e YouTube.');
+ await patchMedia(tabId,id,{status:'native-connecting',progress:0,message:'Conectando ao assistente local...'});
+ const port=chrome.runtime.connectNative('com.mediafinder.bridge');
+ const key=id;
+ const state={port,tabId,id,finished:false};
+ nativePorts.set(key,state);
+ port.onMessage.addListener(message=>{
+  if(message.id!==id)return;
+  if(message.type==='started'||message.type==='progress'){
+   patchMedia(tabId,id,{status:'native-running',progress:message.progress??0,
+    message:message.message||'Baixando com processamento local...'}).catch(console.warn);
+  }else if(message.type==='complete'){
+   state.finished=true;
+   patchMedia(tabId,id,{status:'done',progress:100,message:message.message||'Arquivo salvo pelo assistente local.'})
+    .finally(()=>port.disconnect()).catch(console.warn);
+  }else if(message.type==='error'){
+   state.finished=true;
+   patchMedia(tabId,id,{status:'error',message:message.message||'Erro no assistente local.'})
+    .finally(()=>port.disconnect()).catch(console.warn);
+  }
+ });
+ port.onDisconnect.addListener(()=>{
+  if(nativePorts.get(key)===state)nativePorts.delete(key);
+  if(!state.finished){
+   const err=chrome.runtime.lastError?.message||'Conexão encerrada.';
+   patchMedia(tabId,id,{status:'error',message:'Assistente local indisponível: '+err+
+    ' Consulte native/README.md para instalar no Chrome ou Brave.'}).catch(console.warn);
+  }
+ });
+ port.postMessage({cmd:'download',id,url});
+ return {ok:true,pending:true};
+}
+
 async function cancelDownload(tabId,id){
  const item=await getItem(tabId,id);
  if(!item)throw new Error('Download não encontrado.');
+ const native=nativePorts.get(id);
+ if(native){
+  native.finished=true;
+  try{native.port.postMessage({cmd:'cancel',id});}catch{}
+  native.port.disconnect();nativePorts.delete(id);
+  await patchMedia(tabId,id,{status:'canceled',message:'Download local cancelado.'});
+  return {ok:true};
+ }
  if(item.downloadId!==undefined&&item.status==='downloading'){
   await chrome.downloads.cancel(item.downloadId);
   await patchMedia(tabId,id,{status:'canceled',message:'Download cancelado.'});
@@ -294,6 +351,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
+  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id);
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
  })().then(respond,error=>respond({ok:false,error:error.message||String(error)}));
