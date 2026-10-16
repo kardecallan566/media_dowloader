@@ -31,7 +31,17 @@ def allowed_url(value):
         hostname = (parsed.hostname or "").lower().strip(".")
         if not any(hostname == item or hostname.endswith("." + item) for item in ALLOWED_HOSTS):
             return False
-        return bool(parsed.netloc)
+        pieces = [p for p in parsed.path.split("/") if p]
+        if hostname == "youtu.be":
+            return len(pieces) == 1 and bool(re.fullmatch(r"[A-Za-z0-9_-]{11}", pieces[0]))
+        if hostname.endswith("youtube.com") or hostname.endswith("youtube-nocookie.com"):
+            if len(pieces) == 1 and pieces[0] == "watch":
+                from urllib.parse import parse_qs
+                return bool(re.fullmatch(r"[A-Za-z0-9_-]{11}", parse_qs(parsed.query).get("v", [""])[0]))
+            return (len(pieces) == 2 and pieces[0] in ("shorts", "live", "embed") and
+                    bool(re.fullmatch(r"[A-Za-z0-9_-]{11}", pieces[1])))
+        return (len(pieces) == 2 and pieces[0] in ("reel", "p", "tv") and
+                bool(re.fullmatch(r"[A-Za-z0-9_-]{5,40}", pieces[1])))
     except (TypeError, ValueError):
         return False
 
@@ -63,7 +73,11 @@ def downloads_directory():
     return folder
 
 
-def command_for(url):
+def command_for(url, cookies_browser=None):
+    if not allowed_url(url):
+        raise RuntimeError("Abra uma publicação ou Reel específico, não a página inicial.")
+    if cookies_browser not in (None, "brave"):
+        raise RuntimeError("Navegador de sessão não permitido.")
     ytdlp = shutil.which("yt-dlp")
     ffmpeg = shutil.which("ffmpeg")
     if not ytdlp:
@@ -71,16 +85,19 @@ def command_for(url):
     if not ffmpeg:
         raise RuntimeError("FFmpeg não encontrado. Instale com: scoop install ffmpeg")
     directory = downloads_directory()
-    return [
+    arguments = [
         ytdlp, "--ignore-config", "--no-playlist", "--no-overwrites",
         "--restrict-filenames",
         "--newline", "--merge-output-format", "mp4",
         "--format", "bv+ba/b",
         "--ffmpeg-location", str(Path(ffmpeg).parent),
         "--paths", str(directory),
-        "--output", "%(title).100B__%(id)s.%(ext)s",
-        "--", url
+        "--output", "%(title).100B__%(id)s.%(ext)s"
     ]
+    if cookies_browser == "brave":
+        arguments.extend(["--cookies-from-browser", "brave"])
+    arguments.extend(["--", url])
+    return arguments
 
 
 def parse_percent(line):
@@ -90,10 +107,10 @@ def parse_percent(line):
     return min(99, max(0, int(float(match.group(1)))))
 
 
-def run_download(job_id, url):
+def run_download(job_id, url, cookies_browser=None):
     process = None
     try:
-        command = command_for(url)
+        command = command_for(url, cookies_browser)
         process = subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -103,7 +120,14 @@ def run_download(job_id, url):
             active[job_id] = process
         write_message({"id": job_id, "type": "started", "message": "Processando vídeo com yt-dlp/FFmpeg..."})
         last = ""
+        auth_error = False
+        browser_cookie_error = False
         for line in process.stdout:
+            normalized = line.casefold()
+            if any(mark in normalized for mark in ("login required", "log in", "login to", "cookies-to-yt-dlp", "login_required")):
+                auth_error = True
+            if any(mark in normalized for mark in ("failed to decrypt", "could not decrypt", "cookie database", "dpapi", "cookie extraction")):
+                browser_cookie_error = True
             percent = parse_percent(line)
             if percent is not None:
                 write_message({"id": job_id, "type": "progress", "progress": percent,
@@ -119,8 +143,17 @@ def run_download(job_id, url):
         elif code < 0:
             write_message({"id": job_id, "type": "error", "message": "Processo encerrado."})
         else:
-            write_message({"id": job_id, "type": "error",
-                           "message": last or "Falha do yt-dlp. A fonte pode exigir login, ter expirado ou não permitir download."})
+            if browser_cookie_error and cookies_browser:
+                reason = ("Não foi possível ler a sessão do Brave. O navegador pode proteger cookies ou o perfil pode estar inacessível.")
+            elif auth_error and not cookies_browser:
+                reason = ("Esta publicação exige login. Para conteúdo autorizado, marque 'Usar sessão do Brave' e tente novamente. A leitura pode falhar por proteções do navegador.")
+            elif auth_error:
+                reason = ("Mesmo com a sessão do Brave, o Instagram não autorizou o download desta publicação.")
+            elif "unsupported url" in last.casefold():
+                reason = ("URL não suportada. Abra o Reel/post na sua página específica, não no feed.")
+            else:
+                reason = last[:250] if last else "O site não forneceu um vídeo baixável ou a URL expirou."
+            write_message({"id": job_id, "type": "error", "message": reason})
     except Exception as exc:
         write_message({"id": job_id, "type": "error", "message": str(exc)[:350]})
     finally:
@@ -154,7 +187,11 @@ def main():
         if already:
             write_message({"type": "error", "id": job_id, "message": "Download já iniciado."})
             continue
-        threading.Thread(target=run_download, args=(job_id, msg["url"]), daemon=True).start()
+        cookies_browser = msg.get("cookiesBrowser")
+        if cookies_browser not in (None, "brave"):
+            write_message({"type": "error", "id": job_id, "message": "Opção de sessão inválida."})
+            continue
+        threading.Thread(target=run_download, args=(job_id, msg["url"], cookies_browser), daemon=True).start()
 
 
 if __name__ == "__main__":
