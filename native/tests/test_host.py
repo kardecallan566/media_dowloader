@@ -1,0 +1,50 @@
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import host
+
+
+class NativeHostTests(unittest.TestCase):
+    def test_allowed_known_https_pages(self):
+        self.assertTrue(host.allowed_url("https://www.instagram.com/reel/123/?igsh=abc"))
+        self.assertTrue(host.allowed_url("https://www.youtube.com/watch?v=abcdefghijk"))
+        self.assertTrue(host.allowed_url("https://youtu.be/abcdefghijk"))
+
+    def test_reject_untrusted_scheme_local_addresses_and_host_tricks(self):
+        urls = [
+            "http://instagram.com/reel/a", "file:///tmp/a", "https://localhost/file",
+            "https://instagram.com.attacker.example/video", "https://user:pass@youtube.com/watch",
+            "https://127.0.0.1/private", "https://www.youtube.com.evil.example/x",
+            "javascript:alert(1)"
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertFalse(host.allowed_url(url))
+
+    def test_command_is_subprocess_argv_without_shell_and_no_cookies(self):
+        with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/" + name):
+            with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
+                command = host.command_for("https://www.instagram.com/reel/a/")
+        self.assertEqual(command[0], "/usr/bin/yt-dlp")
+        self.assertIn("--merge-output-format", command)
+        self.assertIn("mp4", command)
+        self.assertIn("--no-playlist", command)
+        self.assertNotIn("--cookies-from-browser", command)
+        self.assertEqual(command[-2], "--")
+        self.assertEqual(command[-1], "https://www.instagram.com/reel/a/")
+
+    def test_missing_ffmpeg_reports_clear_error(self):
+        with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None):
+            with self.assertRaisesRegex(RuntimeError, "FFmpeg"):
+                host.command_for("https://youtube.com/watch?v=abcdefghijk")
+
+    def test_progress_parse(self):
+        self.assertEqual(host.parse_percent("[download]  35.2% of 9.32MiB"), 35)
+        self.assertIsNone(host.parse_percent("[Merger] Merging formats"))
+
+
+if __name__ == "__main__":
+    unittest.main()
