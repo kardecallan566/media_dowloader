@@ -1,4 +1,22 @@
-# Media Finder Pro · v1.10.2
+# Media Finder Pro · v1.11.0
+
+## Correção dos downloads HLS e suporte opcional ao Pinterest
+
+**Erro `Cannot read properties of undefined (reading 'download')`:** o documento auxiliar (offscreen) não dispõe da API `chrome.downloads`. Ele agora monta o Blob e pede ao service worker — que tem a permissão Downloads — para salvar o arquivo. O estado e o encerramento são acompanhados no service worker; a URL temporária é liberada quando o navegador conclui ou interrompe o download. Inclui proteção para conclusões que chegam antes do registro do Blob.
+
+**Playlists com áudio separado:** o downloader HLS interno agora tenta escolher uma qualidade que tenha o áudio junto com o vídeo, quando existir. Se todas as qualidades possuem áudio separado, explica a necessidade do FFmpeg em vez de salvar um vídeo mudo ou incompleto. HLS com DRM, criptografia não suportada ou ausência de autorização continua indisponível.
+
+**Pinterest:** as várias URLs `v1.pinimg.com` observadas podem ser rendições, qualidades e faixas do mesmo vídeo, não necessariamente servidores/arquivos independentes. Para evitar escolher o vídeo errado do feed, a extensão aceita o link exato do Pin (`https://www.pinterest.com/pin/<id>/`). Ela tenta identificá-lo próximo ao player ou permite colá-lo no cartão; ao solicitar o download, usa o yt-dlp e FFmpeg locais para conteúdo acessível e autorizado. Links de perfil, feed e busca não são aceitos como vídeo individual. Isso não garante disponibilidade de vídeos privados ou protegidos.
+
+**TopAnimes:** o timeout apresentado indica ausência de resposta do servidor ao assistente, e não o mesmo erro de `chrome.downloads`. O limite e o diagnóstico permanecem; links HLS expirados ou bloqueados não são recuperados por meio de contorno de proteção.
+
+### Atualização
+
+Na pasta do projeto: `git pull origin main`, recarregue em `brave://extensions`, atualize a aba e confira **v1.11.0**. Como foi incluído o Pinterest no assistente Python, execute novamente `native/install.ps1` com o ID da extensão e reinicie completamente o Brave. Esse passo de recompilação só é necessário para a opção de download local por Pin; para o download HLS pelo navegador basta recarregar a extensão.
+
+Os testes automatizados incluem chamadas offscreen→service worker, limpeza do Blob, escolha de qualidade HLS com áudio, e validação dos links específicos do Pinterest. Testes de reprodução final nos sites reais ainda dependem do navegador e de autorização dos servidores.
+
+---
 
 ## Correção do HLS recusado por HTTP 403 no TopAnimes
 
