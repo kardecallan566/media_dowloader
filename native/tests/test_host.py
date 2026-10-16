@@ -67,6 +67,40 @@ class NativeHostTests(unittest.TestCase):
         self.assertFalse(host.allowed_source("http://cdn-s01.pixel-sus-4k-image.com/x.mp4", origin))
         self.assertFalse(host.allowed_source("https://cdn-s01.pixel-sus-4k-image.com/x.html", origin))
 
+    def test_topanimes_hls_pair_is_explicitly_scoped(self):
+        hls = "https://doce-de-leite-vegano.b-cdn.net/a/b/cdn_stream.m3u8?expires=1893456000&token=abc"
+        page = "https://topanimes.net/assistir/teste/"
+        self.assertTrue(host.allowed_source(hls, page))
+        self.assertTrue(host.allowed_source(hls, "https://www.topanimes.net/video/"))
+        self.assertFalse(host.allowed_source(hls, "https://sushianimes.com.br/ep7"))
+        self.assertFalse(host.allowed_source("https://other.b-cdn.net/stream.m3u8", page))
+        self.assertFalse(host.allowed_source("http://doce-de-leite-vegano.b-cdn.net/stream.m3u8", page))
+        self.assertFalse(host.allowed_source("https://doce-de-leite-vegano.b-cdn.net/private", page))
+
+    def test_expired_hls_manifest_is_not_dispatched(self):
+        expired = "https://doce-de-leite-vegano.b-cdn.net/a/index.m3u8?expires=1700000000"
+        self.assertTrue(host.source_expired(expired, now=1800000000))
+        self.assertFalse(host.source_expired(expired, now=1600000000))
+        page = "https://topanimes.net/assistir/teste/"
+        with self.assertRaisesRegex(RuntimeError, "expirou"):
+            host.command_for_source(expired,page)
+
+    def test_hls_context_uses_ffmpeg_remux_without_browser_credentials(self):
+        hls = "https://doce-de-leite-vegano.b-cdn.net/a/index.m3u8?expires=1893456000"
+        page = "https://topanimes.net/assistir/teste/"
+        with patch.object(host.shutil, "which", side_effect=lambda tool: "/usr/bin/"+tool):
+            with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
+                args=host.command_for_source(hls,page)
+        self.assertIn("--remux-video",args)
+        self.assertEqual(args[args.index("--remux-video")+1],"mp4")
+        self.assertEqual(args[args.index("--referer")+1],page)
+        self.assertNotIn("--cookies-from-browser",args)
+
+    def test_watchdog_detects_stalled_and_oversized_jobs(self):
+        self.assertIsNone(host.watchdog_reason(30, 120))
+        self.assertEqual(host.watchdog_reason(121, 121),"NO_ACTIVITY")
+        self.assertEqual(host.watchdog_reason(5, 45*60),"MAX_DURATION")
+
     def test_contextual_command_has_expected_referrer_and_no_cookies(self):
         source = "https://cdn-s01.pixel-sus-4k-image.com/stream/h/example/07.mp4"
         origin = "https://sushianimes.com.br/assistir/teste/episodio-7"
