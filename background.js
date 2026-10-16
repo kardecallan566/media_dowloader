@@ -63,10 +63,13 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
       }
      }
     }
-    if(source==='network'&&input.responseStatus&&found.responseStatus!==input.responseStatus){
+    if(source==='network'&&input.responseStatus&&
+     (found.responseStatus!==input.responseStatus || found.requestKind!==input.requestKind)){
      found.responseStatus=input.responseStatus;
      found.responseRange=clean(input.contentRange);
      found.responseLength=Number(input.contentLength)||null;
+     found.requestKind=clean(input.requestKind);
+     found.requestOrigin=normalizedUrl(input.requestOrigin)||null;
      changed=true;
     }
     if(source==='page'&&(found.source!=='page'||found.visible!==visible||found.frameId!==frameId)){
@@ -93,7 +96,8 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
     duration:Number.isFinite(input.duration)&&input.duration>0?Math.round(input.duration):null,
     width:Number(input.width)||null,height:Number(input.height)||null,
     responseStatus:input.responseStatus||null,responseRange:clean(input.contentRange),
-    responseLength:Number(input.contentLength)||null,
+    responseLength:Number(input.contentLength)||null,requestKind:clean(input.requestKind),
+    requestOrigin:normalizedUrl(input.requestOrigin)||null,
     time:new Date().toISOString(),status:'ready',progress:0,message:'',analysis:null
    };
    list.push(item);indexed.set(identity,item);changed=true;
@@ -396,7 +400,8 @@ chrome.webRequest.onHeadersReceived.addListener(details=>{
  // Ignore preview/partial requests when clearly segments; keep full progressive MP4.
  saveCandidates(details.tabId,[{
    url:details.url,contentType:mime,responseStatus:details.statusCode,
-   contentRange:header('content-range'),contentLength:header('content-length')
+   contentRange:header('content-range'),contentLength:header('content-length'),
+   requestKind:details.type,requestOrigin:details.initiator||''
  }], 'network').catch(console.warn);
 },{urls:['<all_urls>']},['responseHeaders']);
 
