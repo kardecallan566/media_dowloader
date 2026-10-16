@@ -11,6 +11,7 @@ let moreLimit=10;
 let refreshTimer=null;
 let loading=false;
 const verifiedThisOpen=new Set();
+const playerSourcesOpen=new Set();
 let autoTimer=null;
 const names={video:'Vídeo',image:'Imagem',audio:'Áudio'};
 const icons={video:'▶',image:'▧',audio:'♫'};
@@ -58,6 +59,28 @@ function preview(item){
  }
  return wrap;
 }
+function possibleSources(player){
+ const host=(()=>{try{return new URL(player.url).hostname;}catch{return '';}})();
+ const isInstagram=host==='instagram.com'||host.endsWith('.instagram.com');
+ const isYoutube=host==='youtube.com'||host.endsWith('.youtube.com');
+ return items.filter(candidate=>{
+  if(candidate.id===player.id||candidate.type==='Player')return false;
+  if(!['Video','HLS','DASH'].includes(candidate.type))return false;
+  if(candidate.source==='page'&&candidate.playerId===player.playerId)return true;
+  if(candidate.source!=='network')return false;
+  try{
+   const sourceHost=new URL(candidate.url).hostname;
+   if(isInstagram)return sourceHost.endsWith('.cdninstagram.com')||sourceHost.endsWith('.fbcdn.net');
+   if(isYoutube)return sourceHost==='googlevideo.com'||sourceHost.endsWith('.googlevideo.com');
+   return true;
+  }catch{return false;}
+ }).sort((a,b)=>{
+  const score=x=>(x.analysis?.canDownload?1000:0)+(x.type==='HLS'?300:0)
+   +(x.responseRange?60:0)+(x.responseLength>65536?40:0)+(x.status==='blocked'?-100:0);
+  return score(b)-score(a)||(new Date(b.time)-new Date(a.time));
+ }).slice(0,8);
+}
+
 function mediaCard(item,index,{uncertain=false}={}){
  const kind=group(item.type);
  const card=node('article','media-card');
@@ -100,17 +123,26 @@ function mediaCard(item,index,{uncertain=false}={}){
  const actions=node('div','media-actions');
  const isRunning=['checking','running','saving','downloading'].includes(item.status);
  const blocked=item.type==='Player'||item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
+ const candidates=item.type==='Player'?possibleSources(item):[];
  const button=node('button','download-btn',isRunning?'Verificando / baixando...':blocked?'Verificar novamente':item.status==='done'?'Baixar novamente':
   (item.type==='HLS'?'Baixar stream':item.analysis?.canDownload?`Baixar ${names[kind]?.toLowerCase()||'arquivo'}`:'Verificar e baixar'));
  const formatMissing=item.type!=='HLS'&&item.type!=='DASH'&&!ext;
- if(item.type==='Player')button.textContent='Fonte completa ainda não disponível';
+ if(item.type==='Player')button.textContent=candidates.length?
+  `Buscar fontes de download (${candidates.length})`:'Procurar fonte do vídeo';
  if(item.type==='DASH')button.textContent='DASH indisponível';
  if(formatMissing)button.textContent='Formato indisponível';
- button.disabled=isRunning||item.type==='Player'||item.type==='DASH'||formatMissing;
- button.title=item.type==='Player'?'O vídeo está visível no site, mas o arquivo original ainda não foi identificado.':
+ button.disabled=isRunning||item.type==='DASH'||(formatMissing&&item.type!=='Player');
+ button.title=item.type==='Player'?'Abrir possíveis fontes; é necessário conferir se pertencem ao vídeo atual.':
   item.type==='DASH'?'O formato DASH precisa de um muxer de áudio e vídeo.':
   formatMissing?'Não foi possível identificar a extensão do arquivo.':'';
  button.onclick=async()=>{
+  if(item.type==='Player'){
+   if(playerSourcesOpen.has(item.id))playerSourcesOpen.delete(item.id);
+   else playerSourcesOpen.add(item.id);
+   expanded=false;render();
+   if(playerSourcesOpen.has(item.id)&&!candidates.length)rescan().catch(()=>{});
+   return;
+  }
   button.disabled=true;button.textContent='Preparando...';notify('');
   try{
    const cmd=blocked?'verifyMedia':'startDownload';
@@ -134,6 +166,20 @@ function mediaCard(item,index,{uncertain=false}={}){
  const detail=document.createElement('details');
  const summary=document.createElement('summary');summary.textContent=uncertain?'Ver origem da fonte':'Detalhes técnicos';
  const url=node('div','raw-url',item.url);detail.append(summary,url);card.append(detail);
+ if(item.type==='Player'&&playerSourcesOpen.has(item.id)){
+  const panel=node('div','player-candidates');
+  const all=possibleSources(item);
+  panel.append(node('div','section-title',all.length?
+   'Possíveis fontes encontradas':'Nenhum arquivo completo identificado ainda'));
+  panel.append(node('div','notice',all.length?
+   'As fontes vêm de requisições da página e podem ser de outros vídeos do feed. Verifique antes de baixar.':
+   'O player usa blob/MSE. Reproduza brevemente e clique em Atualizar para tentar identificar as fontes; não precisa assistir até o fim.'));
+  for(let i=0;i<all.length;i++){
+   const candidate=all[i];
+   panel.append(mediaCard({...candidate,label:candidate.label||`Fonte possível ${i+1}`},i,{uncertain:true}));
+  }
+  card.append(panel);
+ }
  return card;
 }
 function heading(name,hint=''){
