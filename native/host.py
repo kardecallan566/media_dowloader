@@ -46,6 +46,45 @@ def allowed_url(value):
         return False
 
 
+
+# A narrowly scoped progressive source workflow; no arbitrary URLs or redirects to private networks.
+SOURCE_PAGE_HOSTS = ("sushianimes.com.br", "www.sushianimes.com.br")
+SOURCE_CDN_HOSTS = ("cdn-s01.pixel-sus-4k-image.com",)
+def allowed_source(url, referrer):
+    try:
+        src = urlsplit(url)
+        page = urlsplit(referrer)
+        if src.scheme != "https" or page.scheme != "https":
+            return False
+        if src.username or src.password or src.port or page.username or page.password or page.port:
+            return False
+        if (src.hostname or "").lower() not in SOURCE_CDN_HOSTS:
+            return False
+        if (page.hostname or "").lower() not in SOURCE_PAGE_HOSTS:
+            return False
+        if not src.path.lower().endswith((".mp4", ".webm")):
+            return False
+        if not page.path.startswith("/") or not page.path.strip("/"):
+            return False
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def command_for_source(url, referrer):
+    if not allowed_source(url, referrer):
+        raise RuntimeError("Fonte não autorizada para download contextual. Confira a página de origem.")
+    tool = shutil.which("yt-dlp")
+    if not tool:
+        raise RuntimeError("yt-dlp não instalado.")
+    directory = downloads_directory()
+    return [tool, "--ignore-config", "--no-playlist", "--no-overwrites",
+            "--newline", "--restrict-filenames",
+            "--referer", referrer,
+            "--paths", str(directory),
+            "--output", "%(title).90B__%(id)s.%(ext)s", "--", url]
+
+
 def write_message(payload):
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     with output_lock:
@@ -107,10 +146,10 @@ def parse_percent(line):
     return min(99, max(0, int(float(match.group(1)))))
 
 
-def run_download(job_id, url, cookies_browser=None):
+def run_download(job_id, url, cookies_browser=None, source_referrer=None):
     process = None
     try:
-        command = command_for(url, cookies_browser)
+        command = command_for_source(url, source_referrer) if source_referrer else command_for(url, cookies_browser)
         process = subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -149,6 +188,9 @@ def run_download(job_id, url, cookies_browser=None):
                 reason = ("Esta publicação exige login. Para conteúdo autorizado, marque 'Usar sessão do Brave' e tente novamente. A leitura pode falhar por proteções do navegador.")
             elif auth_error:
                 reason = ("Mesmo com a sessão do Brave, o Instagram não autorizou o download desta publicação.")
+            elif source_referrer and any(flag in last.casefold() for flag in
+                ("403", "forbidden", "blocked", "cloudflare", "access denied")):
+                reason = ("O servidor recusou a transferência fora do player original (HTTP 403/bloqueio). A extensão não contorna restrições do CDN.")
             elif "unsupported url" in last.casefold():
                 reason = ("URL não suportada. Abra o Reel/post na sua página específica, não no feed.")
             else:
@@ -179,8 +221,18 @@ def main():
             if process is not None:
                 process.terminate()
             continue
-        if msg.get("cmd") != "download" or not allowed_url(msg.get("url")):
-            write_message({"type": "error", "id": job_id, "message": "URL não permitida para o assistente local."})
+        cmd = msg.get("cmd")
+        referrer = msg.get("referrer")
+        if cmd == "downloadSource":
+            if not allowed_source(msg.get("url"), referrer):
+                write_message({"type": "error", "id": job_id, "message": "Fonte ou página de origem não permitida."})
+                continue
+        elif cmd == "download":
+            if not allowed_url(msg.get("url")):
+                write_message({"type": "error", "id": job_id, "message": "URL não permitida para o assistente local."})
+                continue
+        else:
+            write_message({"type": "error", "id": job_id, "message": "Comando desconhecido."})
             continue
         with active_lock:
             already = job_id in active
@@ -191,7 +243,12 @@ def main():
         if cookies_browser not in (None, "brave"):
             write_message({"type": "error", "id": job_id, "message": "Opção de sessão inválida."})
             continue
-        threading.Thread(target=run_download, args=(job_id, msg["url"], cookies_browser), daemon=True).start()
+        if cmd == "downloadSource" and cookies_browser is not None:
+            write_message({"type": "error", "id": job_id, "message": "Cookies não são usados em downloads de fontes de terceiros."})
+            continue
+        threading.Thread(target=run_download,
+            args=(job_id, msg["url"], cookies_browser, referrer if cmd == "downloadSource" else None),
+            daemon=True).start()
 
 
 if __name__ == "__main__":
