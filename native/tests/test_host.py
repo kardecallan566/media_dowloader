@@ -107,6 +107,67 @@ class NativeHostTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "pasta permitida"):
                     host.verify_saved_video(str(folder.parent / "outside.mp4"))
 
+    def test_cookie_failure_categories_do_not_include_normal_cookie_activity(self):
+        self.assertEqual(host.classify_failure([
+            "ERROR: Failed to decrypt with DPAPI. See yt-dlp issue"
+        ]), "COOKIES_UNAVAILABLE")
+        self.assertEqual(host.classify_failure([
+            "ERROR: Could not copy brave cookie database."
+        ]), "COOKIES_UNAVAILABLE")
+        self.assertEqual(host.classify_failure([
+            "[Cookies] Extracting cookies from brave",
+            "ERROR: Login required"
+        ]), "AUTH_REQUIRED")
+        self.assertEqual(host.classify_failure([
+            "Extracting cookies from brave", "ERROR: HTTP Error 403"
+        ]), "ACCESS_DENIED")
+
+    def test_native_retries_without_cookies_after_brave_error(self):
+        url = "https://www.instagram.com/reel/ABC123/"
+        messages = []
+        attempts = []
+        def fake_attempt(job_id, command):
+            attempts.append(command)
+            if len(attempts) == 1:
+                return (1, None, "COOKIES_UNAVAILABLE")
+            return (0, "/tmp/MediaFinder/test.mp4", "DOWNLOAD_FAILED")
+        with patch.object(host, "command_for",
+                          side_effect=lambda url, browser=None: ["yt-dlp"] +
+                          (["--cookies-from-browser", browser] if browser else []) + [url]):
+            with patch.object(host, "run_ytdlp_attempt", side_effect=fake_attempt):
+                with patch.object(host, "verify_saved_video",
+                                  return_value=Path("/tmp/MediaFinder/test.mp4")):
+                    with patch.object(host, "write_message",
+                                      side_effect=lambda payload: messages.append(payload)):
+                        host.run_download("test-123", url, "brave")
+        self.assertEqual(len(attempts), 2)
+        self.assertIn("--cookies-from-browser", attempts[0])
+        self.assertNotIn("--cookies-from-browser", attempts[1])
+        self.assertTrue(any(x["type"] == "warning" for x in messages))
+        self.assertEqual(messages[-1]["type"], "complete")
+
+    def test_private_video_public_fallback_returns_specific_error(self):
+        url = "https://www.instagram.com/reel/ABC123/"
+        messages = []
+        with patch.object(host, "command_for",
+                          side_effect=lambda url, browser=None: ["yt-dlp", browser or "public"]):
+            with patch.object(host, "run_ytdlp_attempt",
+                              side_effect=[(1, None, "COOKIES_UNAVAILABLE"),
+                                           (1, None, "AUTH_REQUIRED")]):
+                with patch.object(host, "write_message",
+                                  side_effect=lambda payload: messages.append(payload)):
+                    host.run_download("test-456", url, "brave")
+        self.assertEqual(messages[-1]["type"], "error")
+        self.assertEqual(messages[-1]["code"], "AUTH_REQUIRED")
+        self.assertIn("tentativa pública", messages[-1]["message"])
+
+    def test_firefox_option_is_explicit_and_optional(self):
+        url = "https://www.instagram.com/reel/ABC123/"
+        with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/" + name):
+            with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
+                command = host.command_for(url, "firefox")
+        self.assertEqual(command[command.index("--cookies-from-browser") + 1], "firefox")
+
     def test_missing_ffmpeg_reports_clear_error(self):
         with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None):
             with self.assertRaisesRegex(RuntimeError, "FFmpeg"):
