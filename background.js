@@ -1,5 +1,6 @@
 import { normalizedUrl, mediaType, mediaKey, shouldIgnoreNetwork, ranking, fileExtension } from './media-utils.js';
 import { validateProbe, parseRange } from './download-check.js';
+import { evaluateRangedPreview, RANGE_MAX_BYTES } from './range-downloader.js';
 
 const STORE='mediaStore';
 let operations=Promise.resolve();
@@ -157,6 +158,17 @@ async function verifyFile(item,{force=false}={}){
   let p=0;for(const chunk of chunks){bytes.set(chunk,p);p+=chunk.length;}
   const type=item.type,ext=fileExtension(item);
   result=validateProbe(response.status,response.headers,bytes,type,ext);
+  if(response.status===206){
+   const candidate=evaluateRangedPreview(response.status,response.headers,bytes,type,ext);
+   if(candidate.canDownload)result=candidate;
+  }
+  if(type==='Video'&&result.state==='uncertain'&&result.size&&result.size<=RANGE_MAX_BYTES
+    &&['mp4','webm'].includes(ext)&&response.status===200&&bytes.length>=12){
+   const isMp4=ext==='mp4'&&String.fromCharCode(...bytes.subarray(4,8))==='ftyp';
+   const isWebm=ext==='webm'&&bytes[0]===0x1a&&bytes[1]===0x45&&bytes[2]===0xdf&&bytes[3]===0xa3;
+   if(isMp4||isWebm)result={...result,state:'likely',canDownload:true,
+    reason:'Cabeçalho reconhecido; estrutura e duração serão conferidas após baixar todos os bytes.'};
+  }
   result.checkedAt=Date.now();
   result.checkedBytes=bytesRead;
   if(response.redirected&&new URL(response.url).origin!==new URL(item.url).origin){
@@ -195,20 +207,22 @@ async function startDownload(tabId,id){
   }
   await patchMedia(tabId,id,{analysis,status:'ready',message:analysis.reason});
   const extension=fileExtension(item);
-  if(item.type==='Video'&&analysis.size&&analysis.size<=96*1024*1024&&['mp4','webm'].includes(extension)){
+  if(item.type==='Video'&&analysis.size&&analysis.size<=RANGE_MAX_BYTES&&['mp4','webm'].includes(extension)){
    if(!await chrome.offscreen.hasDocument())await chrome.offscreen.createDocument({
     url:'offscreen.html',reasons:['BLOBS'],justification:'Validar estrutura e duração de vídeos diretos antes de salvar'
    });
    await patchMedia(tabId,id,{status:'running',progress:0,message:'Baixando e validando vídeo completo...'});
    const reply=await chrome.runtime.sendMessage({cmd:'runDirectJob',
     id:item.id,tabId,url:item.url,title:item.label||item.tabTitle,
-    extension,expectedBytes:analysis.size,duration:item.duration||null});
+    extension,expectedBytes:analysis.size,duration:item.duration||null,
+    strategy:analysis.state==='range'?'ranges':'single'});
    if(!reply?.ok){
     await patchMedia(tabId,id,{status:'error',message:reply?.error||'Falha no verificador de vídeo.'});
     throw new Error(reply?.error||'Falha no verificador de vídeo.');
    }
    return {ok:true};
   }
+  if(analysis.state==='range')throw new Error('Esta fonte exige montagem por intervalos; arquivo acima do limite seguro.');
   let downloadId;
   try {
    downloadId=await chrome.downloads.download({url:item.url,filename:filename(item),saveAs:false,conflictAction:'uniquify'});
