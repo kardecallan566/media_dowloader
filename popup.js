@@ -102,6 +102,8 @@ function mediaCard(item,index,{uncertain=false}={}){
   if(item.trackAudio)chips.append(node('span','chip',item.trackAudio+' faixas de áudio'));
  }
  if(item.sourceKind==='progressive')chips.append(node('span','chip verified','Áudio + vídeo'));
+ if(item.requestKind==='media'&&item.responseStatus>=200&&item.responseStatus<300)
+  chips.append(node('span','chip verified','Requisição do player'));
  if(item.width&&item.height)chips.append(node('span','chip',`${item.width}×${item.height}`));
  if(item.duration)chips.append(node('span','chip',timeLabel(item.duration)));
  if(item.source==='page'&&item.visible)chips.append(node('span','chip','Na página'));
@@ -117,6 +119,7 @@ function mediaCard(item,index,{uncertain=false}={}){
   else chips.append(node('span','chip','A verificar'));
  }
  const host=node('div','media-host',hostName(item));
+ if(item.responseStatus===403)host.title='HTTP 403: servidor bloqueou o acesso à fonte.';
  main.append(head,chips,host);line.append(preview(item),main);card.append(line);
  const status=statusText(item);
  if(status||item.analysis?.reason){
@@ -251,7 +254,12 @@ function mediaCard(item,index,{uncertain=false}={}){
  }
  const detail=document.createElement('details');
  const summary=document.createElement('summary');summary.textContent=uncertain?'Ver origem da fonte':'Detalhes técnicos';
- const url=node('div','raw-url',item.url);detail.append(summary,url);card.append(detail);
+ const url=node('div','raw-url',item.url);
+ detail.append(summary,url);
+ if(item.requestKind)detail.append(node('div','raw-url',
+  'Tipo da requisição: '+item.requestKind+' · HTTP '+(item.responseStatus||'?')));
+ if(item.requestOrigin)detail.append(node('div','raw-url','Origem observada: '+item.requestOrigin));
+ card.append(detail);
  if(item.type==='Player'&&playerSourcesOpen.has(item.id)){
   const panel=node('div','player-candidates');
   const all=possibleSources(item);
