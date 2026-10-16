@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Baixa vídeos acessíveis, com tentativas públicas e autenticação opcional via assistente local.",
-  "version": "1.9.0",
+  "description": "Detecta mídia e oferece downloads verificados, com timeouts e tratamento de HLS e MP4.",
+  "version": "1.10.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
