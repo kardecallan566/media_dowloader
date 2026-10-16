@@ -16,6 +16,9 @@ const verifiedThisOpen=new Set();
 const playerSourcesOpen=new Set();
 const sessionChoices=new Map();
 const pastedPostUrls=new Map();
+const chosenNativeQuality=new Map();
+const hlsQualityList=new Map();
+const hlsSelectedVariant=new Map();
 let autoTimer=null;
 const names={video:'Vídeo',image:'Imagem',audio:'Áudio'};
 const icons={video:'▶',image:'▧',audio:'♫'};
@@ -97,6 +100,64 @@ function hlsExpired(item){
 }
 
 
+function nativeQualitySelector(item){
+ const wrapper=node('div','quality-panel');
+ wrapper.append(node('label','quality-label','Qualidade do vídeo'));
+ const select=document.createElement('select');
+ select.className='quality-select';
+ const options=[['best','Melhor disponível (original)'],['2160','Até 2160p (4K)'],
+  ['1440','Até 1440p (2K)'],['1080','Até 1080p (Full HD)'],
+  ['720','Até 720p (HD)'],['480','Até 480p'],['360','Até 360p']];
+ for(const [value,description] of options){
+  const option=document.createElement('option');option.value=value;
+  option.textContent=description;select.append(option);
+ }
+ select.value=chosenNativeQuality.get(item.id)||'best';
+ select.onchange=()=>chosenNativeQuality.set(item.id,select.value);
+ wrapper.append(select,node('div','notice',
+  'A qualidade escolhida depende das faixas disponíveis. Se não existir uma faixa compatível, o download informa o erro.'));
+ return wrapper;
+}
+function hlsQualitySelector(item){
+ const panel=node('div','quality-panel');
+ const current=hlsQualityList.get(item.id);
+ if(current?.error){
+  panel.append(node('div','notice',current.error));
+ }
+ if(current?.variants){
+  panel.append(node('label','quality-label','Qualidade HLS disponível'));
+  const select=document.createElement('select');select.className='quality-select';
+  const base=document.createElement('option');base.value='';base.textContent='Automática (melhor com áudio)';
+  select.append(base);
+  for(const variant of current.variants){
+   const option=document.createElement('option');
+   option.value=variant.url;
+   const bandwidth=variant.bandwidth?' · '+(variant.bandwidth/1e6).toFixed(1)+' Mb/s':'';
+   option.textContent=(variant.resolution||'Resolução automática')+bandwidth+
+    (variant.separateAudio?' · áudio separado':'');
+   option.disabled=variant.separateAudio;
+   select.append(option);
+  }
+  select.value=hlsSelectedVariant.get(item.id)||'';
+  if(![...select.options].some(o=>o.value===select.value&&!o.disabled))select.value='';
+  select.onchange=()=>hlsSelectedVariant.set(item.id,select.value);
+  panel.append(select);
+ }else{
+  const load=node('button','cancel-btn','Consultar qualidades disponíveis');
+  load.onclick=async()=>{
+   load.disabled=true;load.textContent='Consultando manifesto...';
+   try{
+    const response=await chrome.runtime.sendMessage({cmd:'getHlsQualities',tabId,id:item.id});
+    if(!response?.ok)throw new Error(response?.error||'Não foi possível consultar a playlist.');
+    hlsQualityList.set(item.id,{variants:response.variants||[]});
+   }catch(error){hlsQualityList.set(item.id,{error:error.message});}
+   render();
+  };
+  panel.append(load);
+ }
+ return panel;
+}
+
 function mediaCard(item,index,{uncertain=false}={}){
  const kind=group(item.type);
  const card=node('article','media-card');
@@ -174,13 +235,17 @@ function mediaCard(item,index,{uncertain=false}={}){
   button.disabled=true;button.textContent='Preparando...';notify('');
   try{
    const cmd=nativeHls?'startNativeSource':blocked?'verifyMedia':'startDownload';
-   const result=await chrome.runtime.sendMessage({cmd,tabId,id:item.id,force:blocked});
+   const result=await chrome.runtime.sendMessage({cmd,tabId,id:item.id,force:blocked,
+    quality:chosenNativeQuality.get(item.id)||'best',
+    selectedUrl:!nativeHls?(hlsSelectedVariant.get(item.id)||null):null});
    if(!result?.ok)throw new Error(result?.error||'Não foi possível verificar o arquivo.');
    if(cmd==='verifyMedia'&&result.analysis?.canDownload)notify('Fonte aprovada na verificação. Clique em Baixar para continuar.');
    await load();
   }catch(error){notify(error.message);await load();}
  };
  actions.append(button);
+ if(item.type==='HLS'&&!nativeHls&&!expiredHls)card.append(hlsQualitySelector(item));
+ if(nativeHls)card.append(nativeQualitySelector(item));
  if(isRunning){
   const cancel=node('button','cancel-btn','Cancelar');
   cancel.onclick=async()=>{
@@ -234,7 +299,8 @@ function mediaCard(item,index,{uncertain=false}={}){
    try{
     const answer=await chrome.runtime.sendMessage({cmd:'startNativeDownload',tabId,id:item.id,
      manualUrl:pastedPostUrls.get(item.id)||null,
-     cookiesBrowser:sessionChoices.get(item.id)||null});
+     cookiesBrowser:sessionChoices.get(item.id)||null,
+     quality:chosenNativeQuality.get(item.id)||'best'});
     if(!answer?.ok)throw new Error(answer?.error||'Não foi possível conectar ao assistente.');
    }catch(error){notify(error.message);}
    await load();
@@ -243,7 +309,7 @@ function mediaCard(item,index,{uncertain=false}={}){
   help.title='Instruções de instalação do assistente local no Chrome ou Brave';
   help.onclick=()=>chrome.tabs.create({url:'https://github.com/kardecallan566/media_dowloader/blob/main/native/README.md'});
   nativeControls.append(nativeButton,help);
-  card.append(nativeControls);
+  card.append(nativeQualitySelector(item),nativeControls);
   if(!directPage){
    const entry=node('div','manual-post');
    entry.append(node('div','section-title',isPinterest?'Link do Pin com vídeo':'Link do Reel ou post'));
