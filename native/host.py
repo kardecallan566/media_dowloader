@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
-ALLOWED_HOSTS = ("instagram.com", "youtube.com", "youtube-nocookie.com", "youtu.be")
+ALLOWED_HOSTS = ("instagram.com", "youtube.com", "youtube-nocookie.com", "youtu.be", "pinterest.com")
 MAX_MESSAGE = 64 * 1024
 output_lock = threading.Lock()
 active = {}
@@ -38,6 +38,9 @@ def allowed_url(value):
         if not any(hostname == item or hostname.endswith("." + item) for item in ALLOWED_HOSTS):
             return False
         pieces = [p for p in parsed.path.split("/") if p]
+        if hostname == "pinterest.com" or hostname.endswith(".pinterest.com"):
+            return (len(pieces) == 2 and pieces[0] == "pin" and
+                    bool(re.fullmatch(r"[0-9]{6,30}", pieces[1])))
         if hostname == "youtu.be":
             return len(pieces) == 1 and bool(re.fullmatch(r"[A-Za-z0-9_-]{11}", pieces[0]))
         if hostname.endswith("youtube.com") or hostname.endswith("youtube-nocookie.com"):
