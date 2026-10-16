@@ -247,6 +247,40 @@ export class StreamDownloader {
     return { blob: new Blob(chunks, { type: extension === 'ts' ? 'video/mp2t' : extension === 'mp4' ? 'video/mp4' : 'application/octet-stream' }), extension };
   }
 
+  // Write HLS segments sequentially to OPFS. No video-size cap or full-Blob buffering.
+  // Keeps RAM usage proportional to one network segment, not to the whole movie.
+  async downloadToWriter(writer,onProgress=()=>{}){
+    if(!this.parsed)await this.prepare();
+    if(!writer||typeof writer.write!=='function')throw new Error('Gravador de arquivo ausente.');
+    const {segments,extension}=this.parsed;
+    let lastMapKey='',total=segments.length;
+    for(const segment of segments)if(segment.map){
+      const mapKey=JSON.stringify(segment.map);
+      if(mapKey!==lastMapKey)total++;
+      lastMapKey=mapKey;
+    }
+    let done=0,bytes=0;
+    lastMapKey='';
+    for(const segment of segments){
+      if(this.controller.signal.aborted)throw new Error('Download cancelado.');
+      if(segment.map){
+       const mapKey=JSON.stringify(segment.map);
+       if(mapKey!==lastMapKey){
+        const chunk=await this.requestPart(segment.map);
+        await writer.write(chunk);
+        bytes+=chunk.byteLength;onProgress({done:++done,total,bytes});
+       }
+       lastMapKey=mapKey;
+      }
+      const chunk=await this.requestPart(segment);
+      await writer.write(chunk);
+      bytes+=chunk.byteLength;onProgress({done:++done,total,bytes});
+    }
+    if(this.controller.signal.aborted||done!==total)
+     throw new Error('Arquivo interrompido ou incompleto.');
+    return {bytes,extension};
+  }
+
   cancel() {
     this.controller.abort();
   }
