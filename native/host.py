@@ -73,7 +73,7 @@ def command_for(url):
     directory = downloads_directory()
     return [
         ytdlp, "--ignore-config", "--no-playlist", "--no-overwrites",
-        "--no-exec", "--no-call-home", "--restrict-filenames",
+        "--restrict-filenames",
         "--newline", "--merge-output-format", "mp4",
         "--format", "bv+ba/b",
         "--ffmpeg-location", str(Path(ffmpeg).parent),
