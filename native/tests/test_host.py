@@ -174,7 +174,7 @@ class NativeHostTests(unittest.TestCase):
                 return (1, None, "COOKIES_UNAVAILABLE")
             return (0, "/tmp/MediaFinder/test.mp4", "DOWNLOAD_FAILED")
         with patch.object(host, "command_for",
-                          side_effect=lambda url, browser=None: ["yt-dlp"] +
+                          side_effect=lambda url, browser=None, quality="best": ["yt-dlp"] +
                           (["--cookies-from-browser", browser] if browser else []) + [url]):
             with patch.object(host, "run_ytdlp_attempt", side_effect=fake_attempt):
                 with patch.object(host, "verify_saved_video",
@@ -192,7 +192,7 @@ class NativeHostTests(unittest.TestCase):
         url = "https://www.instagram.com/reel/ABC123/"
         messages = []
         with patch.object(host, "command_for",
-                          side_effect=lambda url, browser=None: ["yt-dlp", browser or "public"]):
+                          side_effect=lambda url, browser=None, quality="best": ["yt-dlp", browser or "public"]):
             with patch.object(host, "run_ytdlp_attempt",
                               side_effect=[(1, None, "COOKIES_UNAVAILABLE"),
                                            (1, None, "AUTH_REQUIRED")]):
@@ -209,6 +209,25 @@ class NativeHostTests(unittest.TestCase):
             with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
                 command = host.command_for(url, "firefox")
         self.assertEqual(command[command.index("--cookies-from-browser") + 1], "firefox")
+
+    def test_native_quality_presets_validate_user_input(self):
+        self.assertEqual(host.quality_format("best"), "bv*+ba/b")
+        self.assertIn("height<=720", host.quality_format("720"))
+        self.assertIn("height<=2160", host.quality_format("2160"))
+        for value in ("0", "9999", "720; echo unsafe", None, 720):
+            with self.assertRaises(RuntimeError):
+                host.quality_format(value)
+
+    def test_quality_used_by_native_page_and_hls(self):
+        with patch.object(host.shutil, "which", side_effect=lambda executable: "/usr/bin/"+executable):
+            with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
+                page_cmd=host.command_for("https://www.instagram.com/reel/ABC123/", None, "720")
+                source_cmd=host.command_for_source(
+                    "https://doce-de-leite-vegano.b-cdn.net/video/index.m3u8?expires=1893456000",
+                    "https://topanimes.net/assistir/episodio/", "480")
+        self.assertIn("height<=720", page_cmd[page_cmd.index("--format")+1])
+        self.assertIn("height<=480", source_cmd[source_cmd.index("--format")+1])
+        self.assertEqual(page_cmd[-2], "--")
 
     def test_missing_ffmpeg_reports_clear_error(self):
         with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None):
