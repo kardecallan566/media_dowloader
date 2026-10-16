@@ -1,4 +1,26 @@
-# Media Finder Pro · v1.11.0
+# Media Finder Pro · v1.12.0
+
+## Downloads grandes sem limite artificial de tamanho
+
+- Os downloads MP4/WebM e HLS compatíveis são escritos progressivamente no armazenamento temporário **OPFS** do navegador. Não é mais necessário manter 96 MB ou 450 MB como teto de vídeo inteiro em memória.
+- Para URLs MP4/WebM que exigem HTTP Range, o download grava intervalos de até 1–4 MB por vez, verificando `Content-Range` e total do arquivo para impedir arquivos incompletos.
+- Para HLS VOD, os segmentos são gravados sequencialmente em disco e o arquivo final é repassado ao gerenciador de downloads do Chrome/Brave; o arquivo temporário é excluído quando a transferência termina.
+- Não há promessa de espaço infinito: a transferência ainda depende de **cota OPFS, espaço livre do disco, compatibilidade do navegador, servidor e eventuais restrições de acesso**. Se OPFS não estiver disponível ou sua cota se esgotar, o usuário verá um erro explícito. O método nativo usa o disco diretamente.
+- O antigo helper de montagem inteiramente em memória permanece limitado por segurança, mas deixou de ser a rota de download de vídeos grandes.
+
+## Escolher qualidade de vídeo
+
+- **HLS:** clique em **Consultar qualidades disponíveis** no card do stream para ler as variantes do manifesto; escolha uma das resoluções reais oferecidas ou mantenha **Automática**. A variante selecionada é validada novamente na master playlist antes de baixar. Opções com áudio separado não são tratadas como vídeo completo pelo downloader interno.
+- **Assistente local (yt-dlp + FFmpeg):** selecione **Melhor disponível**, **2160p**, **1440p**, **1080p**, **720p**, **480p** ou **360p** antes de iniciar. O seletor usa um limite máximo de altura; se não existir uma faixa compatível, ele informa o erro e **não troca para uma resolução superior sem aviso**.
+- Para um único MP4 direto, não existe uma escolha de qualidades se o servidor só disponibiliza aquele arquivo. Conversão/transcodificação não foi acrescentada.
+
+## Atualização
+
+Execute `git pull origin main`, recarregue a extensão em `brave://extensions` e atualize as abas abertas. Como `native/host.py` foi modificado para permitir escolher a resolução, execute novamente `native/install.ps1` com o ID da extensão e reinicie o Brave para usar os novos presets nativos.
+
+Esta versão continua recusando DRM, criptografia HLS não suportada, arquivos fragmentados indevidamente e downloads sem autorização. Testes automatizados incluem gravação progressiva, integridade dos intervalos, validação de variantes e presets permitidos; o comportamento de armazenamento depende do navegador real.
+
+---
 
 ## Correção dos downloads HLS e suporte opcional ao Pinterest
 
