@@ -328,6 +328,45 @@ async function startNativeDownload(tabId,id,consent=false,manualUrl=null) {
  return {ok:true,pending:true};
 }
 
+async function startNativeSource(tabId,id){
+ const item=await getItem(tabId,id);
+ if(!item||item.type!=='Video')throw new Error('Escolha um arquivo de vídeo detectado nesta página.');
+ if(running(item.status))throw new Error('Já existe uma transferência para este arquivo.');
+ const tab=await chrome.tabs.get(tabId);
+ const page=new URL(tab.url||'');
+ const source=new URL(item.url);
+ const permittedPage=['sushianimes.com.br','www.sushianimes.com.br'].includes(page.hostname);
+ const permittedSource=source.hostname==='cdn-s01.pixel-sus-4k-image.com'&&
+    /\.(?:mp4|webm)$/i.test(source.pathname);
+ if(!permittedPage||!permittedSource||page.protocol!=='https:'||source.protocol!=='https:')
+  throw new Error('Download contextual indisponível para esta combinação de página e servidor.');
+ if(item.source!=='network'&&item.source!=='page')throw new Error('Fonte não reconhecida nesta aba.');
+ await patchMedia(tabId,id,{status:'native-connecting',message:'Tentando baixar com a referência da página...',progress:0});
+ const port=chrome.runtime.connectNative('com.mediafinder.bridge');
+ const state={port,tabId,id,finished:false};
+ nativePorts.set(id,state);
+ port.onMessage.addListener(msg=>{
+  if(msg.id!==id)return;
+  if(msg.type==='started'||msg.type==='progress'){
+   patchMedia(tabId,id,{status:'native-running',progress:msg.progress??0,
+    message:msg.message||'Transferindo vídeo...'}).catch(console.warn);
+  }else if(msg.type==='complete'||msg.type==='error'){
+   state.finished=true;
+   patchMedia(tabId,id,msg.type==='complete'?
+    {status:'done',progress:100,message:msg.message||'Arquivo salvo.'}:
+    {status:'error',message:msg.message||'O servidor não autorizou a transferência.'})
+    .finally(()=>port.disconnect()).catch(console.warn);
+  }
+ });
+ port.onDisconnect.addListener(()=>{
+  if(nativePorts.get(id)===state)nativePorts.delete(id);
+  if(!state.finished)patchMedia(tabId,id,{status:'error',
+    message:'Assistente local indisponível: '+(chrome.runtime.lastError?.message||'conexão encerrada')}).catch(console.warn);
+ });
+ port.postMessage({cmd:'downloadSource',id,url:item.url,referrer:page.href});
+ return {ok:true,pending:true};
+}
+
 async function cancelDownload(tabId,id){
  const item=await getItem(tabId,id);
  if(!item)throw new Error('Download não encontrado.');
@@ -378,6 +417,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
   if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser==='brave',msg.manualUrl||null);
+  if(msg.cmd==='startNativeSource')return startNativeSource(msg.tabId,msg.id);
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
  })().then(respond,error=>respond({ok:false,error:error.message||String(error)}));
