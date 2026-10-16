@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Detecta mídia em páginas e salva HLS via Chrome; suporte opcional a Pins com áudio por FFmpeg.",
-  "version": "1.11.0",
+  "description": "Encontra mídia, permite escolher resolução e salva arquivos grandes com gravação incremental.",
+  "version": "1.12.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
