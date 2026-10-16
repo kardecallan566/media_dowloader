@@ -1,6 +1,7 @@
 import { StreamDownloader } from './hls-downloader.js';
 import { parseRange, validateCompleteVideo } from './download-check.js';
-import { downloadRanges, RANGE_MAX_BYTES } from './range-downloader.js';
+import { downloadRangesToWriter } from './range-downloader.js';
+import { openTemporaryMedia } from './opfs-store.js';
 
 const jobs = new Map();
 const emit = (tabId, patch) => chrome.runtime.sendMessage({cmd:'jobUpdate',tabId,patch}).catch(() => {});
@@ -9,9 +10,9 @@ const emit = (tabId, patch) => chrome.runtime.sendMessage({cmd:'jobUpdate',tabId
 // Chrome download actions belong to the extension service worker.
 const savedBlobs = new Map();
 const earlyCompletions=new Map();
-function keepBlobUntilSaved(downloadId,url){
+function keepBlobUntilSaved(downloadId,url,cleanup=()=>{}){
  const timeout=setTimeout(()=>freeBlob(downloadId),30*60*1000);
- savedBlobs.set(downloadId,{url,timeout});
+ savedBlobs.set(downloadId,{url,timeout,cleanup});
  if(earlyCompletions.has(downloadId)){
   clearTimeout(earlyCompletions.get(downloadId));
   earlyCompletions.delete(downloadId);
@@ -32,20 +33,19 @@ function freeBlob(downloadId){
  savedBlobs.delete(downloadId);
  clearTimeout(entry.timeout);
  URL.revokeObjectURL(entry.url);
+ Promise.resolve(entry.cleanup()).catch(()=>{});
 }
-async function saveBlob(message,blobUrl,filename){
+async function saveBlob(message,blobUrl,filename,cleanup=()=>{}){
  const result=await chrome.runtime.sendMessage({
   cmd:'saveBlobDownload',tabId:message.tabId,id:message.id,url:blobUrl,filename
  });
  if(!result?.ok||!Number.isInteger(result.downloadId))
   throw new Error(result?.error||'Não foi possível salvar o arquivo pelo Chrome.');
- keepBlobUntilSaved(result.downloadId,blobUrl);
+ keepBlobUntilSaved(result.downloadId,blobUrl,cleanup);
  if(result.state==='complete'||result.state==='interrupted')freeBlob(result.downloadId);
  return result.downloadId;
 }
 
-
-const DIRECT_MAX_BYTES=96*1024*1024;
 
 async function inspectPlayback(url,expectedDuration){
  const video=document.createElement('video');
@@ -71,71 +71,70 @@ async function inspectPlayback(url,expectedDuration){
 }
 
 async function runDirectVideo(message,controller){
- let objectUrl=null;let downloadStarted=false;
+ let temporary=null,objectUrl=null,queued=false;
  try{
-  emit(message.tabId,{id:message.id,status:'running',progress:0,message:'Recebendo vídeo para conferir integridade...'});
-  let bytes;
-  let lastProgressAt=0;
+  emit(message.tabId,{id:message.id,status:'running',progress:0,
+   message:'Gravando vídeo no armazenamento temporário, sem limite fixo de tamanho...'});
+  temporary=await openTemporaryMedia(message.id);
+  let written=0,firstBytes=new Uint8Array(0),lastProgressAt=0;
+  const update=bytes=>{
+   const now=Date.now();
+   if(now-lastProgressAt>450){
+    lastProgressAt=now;
+    emit(message.tabId,{id:message.id,status:'running',
+      progress:message.expectedBytes?Math.min(89,Math.round(bytes/message.expectedBytes*89)):0,
+      message:'Recebidos '+(bytes/1048576).toFixed(1)+' MB'});
+   }
+  };
   if(message.strategy==='ranges'){
-   if(!Number.isSafeInteger(message.expectedBytes)||message.expectedBytes>RANGE_MAX_BYTES)
-    throw new Error('Tamanho do recurso incompatível com a montagem por intervalos.');
-   bytes=await downloadRanges(message.url,message.expectedBytes,{
-    signal:controller.signal,
-    onProgress:progress=>{
-     const now=Date.now();
-     if(now-lastProgressAt>400||progress.bytes===progress.total){
-      lastProgressAt=now;
-      emit(message.tabId,{id:message.id,status:'running',
-       progress:Math.round(progress.bytes/progress.total*87),
-       message:`Reunindo ${progress.partsDone}/${progress.parts} intervalos · ${(progress.bytes/1048576).toFixed(1)} MB`});
-     }
-    }
-   });
+    if(!Number.isSafeInteger(message.expectedBytes)||message.expectedBytes<65536)
+     throw new Error('Tamanho total inválido para download por intervalos.');
+    const info=await downloadRangesToWriter(message.url,message.expectedBytes,temporary.writer,{
+      signal:controller.signal,onProgress:p=>update(p.bytes)});
+    written=info.bytes;
   }else{
-   const response=await fetch(message.url,{credentials:'include',cache:'no-store',redirect:'follow',signal:controller.signal});
-   const contentRange=parseRange(response.headers.get('content-range'));
-   if(response.status<200||response.status>=300)throw new Error('Download HTTP '+response.status);
-   if(contentRange?.partial||(response.status===206&&!contentRange))
-    throw new Error('O servidor enviou um trecho do vídeo, não o arquivo inteiro.');
-   const mime=response.headers.get('content-type')||'';
-   if(!mime.toLowerCase().startsWith('video/'))throw new Error('Servidor respondeu conteúdo que não é vídeo.');
-   const reader=response.body?.getReader();
-   if(!reader)throw new Error('Resposta do vídeo não contém dados.');
-   const chunks=[];let received=0;
-   try{
-    while(true){
-     const {done,value}=await reader.read();
-     if(done)break;
-     received+=value.length;
-     if(received>DIRECT_MAX_BYTES)throw new Error('Vídeo excede o limite de validação de 96 MB.');
-     chunks.push(value);
-     const now=Date.now();
-     if(now-lastProgressAt>450){
-      lastProgressAt=now;
-      emit(message.tabId,{id:message.id,status:'running',
-       progress:message.expectedBytes?Math.min(87,Math.round(received/message.expectedBytes*87)):0,
-       message:'Baixando e verificando: '+(received/1048576).toFixed(1)+' MB'});
+    const response=await fetch(message.url,{credentials:'include',cache:'no-store',redirect:'follow',signal:controller.signal});
+    const range=parseRange(response.headers.get('content-range'));
+    if(response.status<200||response.status>=300)throw new Error('Download HTTP '+response.status);
+    if(range?.partial||(response.status===206&&!range))
+     throw new Error('Servidor retornou apenas um fragmento em vez do arquivo completo.');
+    const mime=(response.headers.get('content-type')||'').toLowerCase();
+    if(!mime.startsWith('video/'))throw new Error('O servidor não enviou um vídeo.');
+    if(!response.body)throw new Error('Resposta de vídeo vazia.');
+    const reader=response.body.getReader();
+    try{
+     while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      if(controller.signal.aborted)throw new Error('Download cancelado.');
+      if(!firstBytes.length)firstBytes=value.slice(0,64);
+      await temporary.writer.write(value);
+      written+=value.byteLength;
+      update(written);
      }
-    }
-   }finally{await reader.cancel().catch(()=>{});}
-   if(message.expectedBytes&&received!==message.expectedBytes)
-    throw new Error('Download incompleto: '+received+' de '+message.expectedBytes+' bytes esperados.');
-   bytes=new Uint8Array(received);
-   let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+    }finally{await reader.cancel().catch(()=>{});}
+    if(message.expectedBytes&&written!==message.expectedBytes)
+     throw new Error('Download incompleto: '+written+' de '+message.expectedBytes+' bytes.');
   }
-  const check=validateCompleteVideo(bytes,message.extension);
-  if(!check.ok)throw new Error(check.reason);
-  const blob=new Blob([bytes],{type:message.extension==='webm'?'video/webm':'video/mp4'});
-  emit(message.tabId,{id:message.id,status:'running',progress:91,message:'Conferindo a duração do vídeo...'});
-  objectUrl=URL.createObjectURL(blob);
+  if(controller.signal.aborted)throw new Error('Download cancelado.');
+  const {file,cleanup}=await temporary.finish();
+  if(file.size!==written||file.size<16384)throw new Error('Arquivo incompleto ou pequeno demais.');
+  const signature=firstBytes.length?firstBytes:new Uint8Array(await file.slice(0,64).arrayBuffer());
+  const valid=message.extension==='webm'?
+   (signature[0]===0x1a&&signature[1]===0x45&&signature[2]===0xdf&&signature[3]===0xa3):
+   String.fromCharCode(...signature.slice(4,8))==='ftyp';
+  if(!valid)throw new Error('Cabeçalho de vídeo inválido.');
+  objectUrl=URL.createObjectURL(file);
+  emit(message.tabId,{id:message.id,status:'running',progress:92,message:'Verificando duração do vídeo salvo...'});
   const duration=await inspectPlayback(objectUrl,message.duration||null);
   emit(message.tabId,{id:message.id,status:'saving',progress:96,
-   message:'Vídeo reproduzível ('+duration.toFixed(1)+'s). Salvando...'});
+   message:'Vídeo reproduzível ('+duration.toFixed(1)+'s). Transferindo ao Chrome...'});
   const safe=(message.title||'video').normalize('NFKD').replace(/[^A-Za-z0-9_-]/g,'_').slice(0,70)||'video';
-  await saveBlob(message,objectUrl,'MediaFinder/'+safe+'_'+message.id.slice(0,6)+'.'+message.extension);
-  downloadStarted=true;
+  await saveBlob(message,objectUrl,'MediaFinder/'+safe+'_'+message.id.slice(0,6)+'.'+message.extension,cleanup);
+  queued=true;
  }catch(error){
-  if(objectUrl&&!downloadStarted)URL.revokeObjectURL(objectUrl);
+  if(objectUrl&&!queued)URL.revokeObjectURL(objectUrl);
+  if(temporary&&!queued)await temporary.cleanup();
   emit(message.tabId,{id:message.id,status:controller.signal.aborted?'canceled':'blocked',
    message:error.message||String(error)});
  }finally{jobs.delete(message.id);}
@@ -170,18 +169,26 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       emit(message.tabId,{id:message.id,status:'running',progress:0,message:'Lendo manifesto...'});
       const prepared = await job.prepare(message.selectedUrl || null);
       emit(message.tabId,{id:message.id,status:'running',message:`Baixando ${prepared.segments.length} segmentos...`});
-      const result = await job.download(p => emit(message.tabId,{
-        id:message.id,status:'running',progress:Math.round(p.done/p.total*95),
-        message:`${p.done}/${p.total} segmentos · ${(p.bytes/1048576).toFixed(1)} MB`
-      }));
-      emit(message.tabId,{id:message.id,status:'saving',progress:97,message:'Salvando arquivo...'});
-      const url = URL.createObjectURL(result.blob);
-      try {
+      let temp=null,url=null,queued=false;
+      try{
+        temp=await openTemporaryMedia(message.id);
+        const result=await job.downloadToWriter(temp.writer,p=>emit(message.tabId,{
+          id:message.id,status:'running',progress:Math.round(p.done/p.total*92),
+          message:`${p.done}/${p.total} segmentos · ${(p.bytes/1048576).toFixed(1)} MB`
+        }));
+        if(job.controller.signal.aborted)throw new Error('Download cancelado.');
+        const {file,cleanup}=await temp.finish();
+        if(file.size!==result.bytes)throw new Error('O vídeo não foi gravado integralmente.');
+        emit(message.tabId,{id:message.id,status:'saving',progress:96,message:'Salvando arquivo em disco...'});
+        url=URL.createObjectURL(file);
         const safe=(message.title||'video').normalize('NFKD').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,90);
-        await saveBlob(message,url,`MediaFinder/${safe||'video'}.${result.extension}`);
-      }catch(error){
-        URL.revokeObjectURL(url);
-        throw error;
+        await saveBlob(message,url,`MediaFinder/${safe||'video'}.${result.extension}`,cleanup);
+        queued=true;
+      }finally{
+        if(temp&&!queued){
+          if(url)URL.revokeObjectURL(url);
+          await temp.cleanup();
+        }
       }
     } catch (error) {
       emit(message.tabId,{id:message.id,status:job.controller.signal.aborted?'canceled':'error',message:error.message||String(error)});
