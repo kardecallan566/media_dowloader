@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Downloads HLS com escolha de método local quando a requisição do navegador é recusada.",
-  "version": "1.10.2",
+  "description": "Detecta mídia em páginas e salva HLS via Chrome; suporte opcional a Pins com áudio por FFmpeg.",
+  "version": "1.11.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
