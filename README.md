@@ -1,4 +1,20 @@
-# Media Finder Pro · v1.8.0
+# Media Finder Pro · v1.9.0
+
+## Correção: sessão do Brave não pode ser lida
+
+A versão 1.9 não tenta quebrar a criptografia de cookies do navegador. Em vez disso, oferece três modos **por download**:
+
+- **Sem sessão (padrão)**: recomendado para Reels e vídeos públicos. O yt-dlp tenta baixar diretamente sem ler credenciais locais.
+- **Brave (opcional)**: solicita ao yt-dlp ler a sessão do Brave somente com seleção explícita. Se a leitura falhar por bloqueio, DPAPI ou criptografia, a extensão informa a falha e tenta o vídeo público sem cookies.
+- **Firefox (opcional)**: se o Firefox estiver instalado e autenticado na plataforma, permite uma leitura autorizada da sessão desse navegador usando a interface suportada do yt-dlp. Não é necessário instalar Firefox para usar o modo público.
+
+Quando o vídeo exigir autenticação e a sessão escolhida não puder ser lida, o download permanecerá indisponível. A extensão não modifica as proteções do navegador nem garante acesso a publicações privadas. O erro passa a explicar se ocorreu bloqueio de cookies, exigência de login ou recusa do servidor.
+
+**Atualização:** execute `git pull origin main` e recarregue a extensão em `brave://extensions`. Como `native/host.py` mudou, rode novamente `native/install.ps1` com seu ID de extensão, para recompilar `mediafinder_native.exe`; então reinicie o Brave.
+
+Os downloads locais passam por FFprobe antes de serem classificados como concluídos. A interface não mostra tokens ou cookies; os comandos são iniciados somente quando o usuário solicita a transferência.
+
+---
 
 ## Nova implementação: links específicos e CDN de mídia
 
