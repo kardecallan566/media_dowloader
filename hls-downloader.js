@@ -174,8 +174,10 @@ export class StreamDownloader {
       this.parsed = initial.media;
       return initial.media;
     }
-    const chosen = initial.variants[0];
-    if (chosen.separateAudio) throw new Error('Esta qualidade possui áudio separado. É necessário um muxer; não será criado um arquivo sem áudio.');
+    // Prefer the highest-quality rendition that includes audio in the same media stream.
+    // Never silently save a video-only rendition as a completed audiovisual file.
+    const chosen=initial.variants.find(variant=>!variant.separateAudio);
+    if(!chosen)throw new Error('Todas as qualidades HLS usam áudio separado. Abra o vídeo original e utilize o assistente local com FFmpeg para montar vídeo e áudio.');
     const inner = await this.inspect(chosen.url);
     if (!inner.media) throw new Error('Playlists HLS aninhadas não suportadas.');
     this.parsed = inner.media;
