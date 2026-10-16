@@ -236,20 +236,17 @@ function mediaCard(item,index,{uncertain=false}={}){
    entry.append(input);
    card.append(entry);
   }
-  if(directPage || canonicalMediaPageUrl(priorPasted)){
-   if(directPage)card.append(node('div','notice','Publicação identificada: '+directPage));
-   const consent=node('label','cookie-consent');
-   const checkbox=document.createElement('input');
-   checkbox.type='checkbox';
-   checkbox.checked=braveConsent.has(item.id);
-   checkbox.onchange=()=>{if(checkbox.checked)braveConsent.add(item.id);else braveConsent.delete(item.id);};
-   consent.append(checkbox,node('span','',
-    'Usar sessão do Brave neste download (opcional; permite ao yt-dlp tentar ler cookies da conta)'));
-   card.append(consent);
-  }else{
-   card.append(node('div','notice',
-    'No feed, use Compartilhar → Copiar link no vídeo desejado e cole acima. Não será escolhido outro vídeo automaticamente.'));
-  }
+  if(directPage)card.append(node('div','notice','Publicação identificada: '+directPage));
+  else card.append(node('div','notice',
+   'No feed, use Compartilhar → Copiar link no vídeo desejado e cole acima. Não será escolhido outro vídeo automaticamente.'));
+  const consent=node('label','cookie-consent');
+  const checkbox=document.createElement('input');
+  checkbox.type='checkbox';
+  checkbox.checked=braveConsent.has(item.id);
+  checkbox.onchange=()=>{if(checkbox.checked)braveConsent.add(item.id);else braveConsent.delete(item.id);};
+  consent.append(checkbox,node('span','',
+   'Usar sessão do Brave neste download (opcional; permite ao yt-dlp tentar ler cookies da conta)'));
+  card.append(consent);
   card.append(node('div','notice','O assistente é opcional e não remove DRM. O acesso pode exigir login e a leitura de cookies pode ser bloqueada pelo Brave.'));
  }
  const detail=document.createElement('details');
