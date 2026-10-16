@@ -8,9 +8,23 @@ const emit = (tabId, patch) => chrome.runtime.sendMessage({cmd:'jobUpdate',tabId
 // Offscreen documents have chrome.runtime, but not the chrome.downloads API.
 // Chrome download actions belong to the extension service worker.
 const savedBlobs = new Map();
+const earlyCompletions=new Map();
 function keepBlobUntilSaved(downloadId,url){
  const timeout=setTimeout(()=>freeBlob(downloadId),30*60*1000);
  savedBlobs.set(downloadId,{url,timeout});
+ if(earlyCompletions.has(downloadId)){
+  clearTimeout(earlyCompletions.get(downloadId));
+  earlyCompletions.delete(downloadId);
+  freeBlob(downloadId);
+ }
+}
+function markBlobSaved(downloadId){
+ if(savedBlobs.has(downloadId))return freeBlob(downloadId);
+ // Chrome may finish before saveBlob() has received its downloadId.
+ // Keep an early completion briefly; do not leak a permanent entry.
+ if(earlyCompletions.has(downloadId))return;
+ const timeout=setTimeout(()=>earlyCompletions.delete(downloadId),30*1000);
+ earlyCompletions.set(downloadId,timeout);
 }
 function freeBlob(downloadId){
  const entry=savedBlobs.get(downloadId);
@@ -129,7 +143,7 @@ async function runDirectVideo(message,controller){
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if(message.cmd==='savedBlobFinished'){
-   freeBlob(message.downloadId);
+   markBlobSaved(message.downloadId);
    respond({ok:true});
    return;
   }
