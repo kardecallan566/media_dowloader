@@ -216,7 +216,7 @@ async function verifyAndSave(tabId,id,force=false){
  return {ok:true,analysis};
 }
 
-async function startDownload(tabId,id){
+async function startDownload(tabId,id,selectedUrl=null){
  const item=await getItem(tabId,id);
  if(!item)throw new Error('Arquivo não encontrado nesta aba.');
  if(running(item.status))throw new Error('Este arquivo já está sendo baixado.');
@@ -272,10 +272,22 @@ async function startDownload(tabId,id){
  });
  await patchMedia(tabId,id,{status:'running',progress:0,message:'Preparando segmentos...'});
  try{
-  const reply=await chrome.runtime.sendMessage({cmd:'runHlsJob',id,tabId,url:item.url,title:item.label||item.tabTitle});
+  const reply=await chrome.runtime.sendMessage({cmd:'runHlsJob',id,tabId,url:item.url,title:item.label||item.tabTitle,
+   selectedUrl:selectedUrl||null});
   if(!reply?.ok)throw new Error(reply?.error||'Não foi possível iniciar HLS.');
   return {ok:true};
  }catch(err){await patchMedia(tabId,id,{status:'error',message:err.message});throw err;}
+}
+async function getHlsQualities(tabId,id){
+ const item=await getItem(tabId,id);
+ if(!item||item.type!=='HLS')throw new Error('Selecione uma playlist HLS detectada.');
+ if(signedExpiry(item.url)?.expired)throw new Error('A playlist expirou. Atualize a página.');
+ if(!await chrome.offscreen.hasDocument())await chrome.offscreen.createDocument({
+  url:'offscreen.html',reasons:['BLOBS'],justification:'Ler resoluções do manifesto HLS'
+ });
+ const result=await chrome.runtime.sendMessage({cmd:'inspectHlsJob',url:item.url});
+ if(!result?.ok)throw new Error(result?.error||'Falha ao analisar qualidades.');
+ return {ok:true,variants:result.variants};
 }
 function supportedNativePage(url){
  try{
@@ -450,7 +462,7 @@ async function saveOffscreenBlob(msg,sender){
 }
 
 chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
- if(['runHlsJob','runDirectJob','cancelJob'].includes(msg?.cmd))return false; // offscreen owns these.
+ if(['runHlsJob','runDirectJob','cancelJob','inspectHlsJob'].includes(msg?.cmd))return false; // offscreen owns these.
  (async()=>{
   if(msg.cmd==='onMediaDetected' || msg.cmd==='mediaSnapshot'){
    const list=msg.cmd==='mediaSnapshot'?msg.items:[msg];
@@ -465,7 +477,8 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
   if(msg.cmd==='saveBlobDownload')return saveOffscreenBlob(msg,sender);
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
-  if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
+  if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id,msg.selectedUrl||null);
+  if(msg.cmd==='getHlsQualities')return getHlsQualities(msg.tabId,msg.id);
   if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,msg.manualUrl||null);
   if(msg.cmd==='startNativeSource')return startNativeSource(msg.tabId,msg.id);
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
