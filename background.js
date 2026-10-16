@@ -419,6 +419,31 @@ chrome.webRequest.onHeadersReceived.addListener(details=>{
  }], 'network').catch(console.warn);
 },{urls:['<all_urls>']},['responseHeaders']);
 
+function validOffscreenSave(sender,msg){
+ if(sender.tab||sender.url!==chrome.runtime.getURL('offscreen.html'))return false;
+ if(!validTab(msg.tabId)||typeof msg.id!=='string'||msg.id.length>128)return false;
+ if(typeof msg.url!=='string'||!msg.url.startsWith('blob:'+chrome.runtime.getURL('')))return false;
+ return typeof msg.filename==='string'&&
+  /^MediaFinder\/[a-zA-Z0-9_-]{1,100}\.(?:ts|mp4|webm|aac|mp3)$/.test(msg.filename);
+}
+async function saveOffscreenBlob(msg,sender){
+ if(!validOffscreenSave(sender,msg))throw new Error('Solicitação inválida do processador auxiliar.');
+ const item=await getItem(msg.tabId,msg.id);
+ if(!item||!['running','saving'].includes(item.status))throw new Error('Download não está ativo.');
+ const downloadId=await chrome.downloads.download({
+  url:msg.url,filename:msg.filename,saveAs:false,conflictAction:'uniquify'
+ });
+ await patchMedia(msg.tabId,msg.id,{status:'downloading',progress:99,downloadId,
+  message:'Arquivo montado; salvando pelo gerenciador do navegador...'});
+ const [entry]=await chrome.downloads.search({id:downloadId});
+ if(entry?.state==='complete'){
+  await patchMedia(msg.tabId,msg.id,{status:'done',progress:100,message:'Arquivo salvo pelo Chrome.'});
+ }else if(entry?.state==='interrupted'){
+  await patchMedia(msg.tabId,msg.id,{status:'error',message:'O Chrome interrompeu o salvamento.'});
+ }
+ return {ok:true,downloadId,state:entry?.state||'in_progress'};
+}
+
 chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
  if(['runHlsJob','runDirectJob','cancelJob'].includes(msg?.cmd))return false; // offscreen owns these.
  (async()=>{
@@ -433,6 +458,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   }
   if(msg.cmd==='clearMediaForTab'){await clearTab(msg.tabId);return {ok:true};}
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
+  if(msg.cmd==='saveBlobDownload')return saveOffscreenBlob(msg,sender);
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
   if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,msg.manualUrl||null);
@@ -444,6 +470,8 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
 });
 chrome.downloads.onChanged.addListener(async delta=>{
  if(!delta.state)return;
+ if(['complete','interrupted'].includes(delta.state.current))
+  chrome.runtime.sendMessage({cmd:'savedBlobFinished',downloadId:delta.id}).catch(()=>{});
  await serial(async()=>{
   const {mediaStore={}}=await chrome.storage.local.get(STORE);
   let modified=false;
