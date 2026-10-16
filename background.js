@@ -396,8 +396,10 @@ async function cancelDownload(tabId,id){
  if(item.downloadId!==undefined&&item.status==='downloading'){
   await chrome.downloads.cancel(item.downloadId);
   await patchMedia(tabId,id,{status:'canceled',message:'Download cancelado.'});
- }else if(item.type==='HLS'){
-  await chrome.runtime.sendMessage({cmd:'cancelJob',id});
+ }else if(['HLS','Video'].includes(item.type)&&
+   ['checking','running','saving'].includes(item.status)){
+  await chrome.runtime.sendMessage({cmd:'cancelJob',id}).catch(()=>{});
+  await patchMedia(tabId,id,{status:'canceled',message:'Download cancelado pelo usuário.'});
  }
  return {ok:true};
 }
