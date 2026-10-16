@@ -7,6 +7,8 @@ import json
 import os
 import re
 import shutil
+import queue
+import time
 import struct
 import subprocess
 import sys
@@ -19,6 +21,10 @@ MAX_MESSAGE = 64 * 1024
 output_lock = threading.Lock()
 active = {}
 active_lock = threading.Lock()
+cancelled_jobs = set()
+IDLE_TIMEOUT_SECONDS = 120
+MAX_JOB_SECONDS = 45 * 60
+HEARTBEAT_SECONDS = 8
 
 
 def allowed_url(value):
@@ -79,6 +85,7 @@ def command_for_source(url, referrer):
         raise RuntimeError("yt-dlp não instalado.")
     directory = downloads_directory()
     return [tool, "--ignore-config", "--no-playlist", "--no-overwrites",
+            "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2",
             "--newline", "--restrict-filenames",
             "--referer", referrer,
             "--paths", str(directory),
@@ -127,6 +134,7 @@ def command_for(url, cookies_browser=None):
     directory = downloads_directory()
     arguments = [
         ytdlp, "--ignore-config", "--no-playlist", "--no-overwrites",
+        "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2",
         "--restrict-filenames",
         "--newline", "--merge-output-format", "mp4",
         "--format", "bv+ba/b",
@@ -223,6 +231,30 @@ def failure_message(code, cookie_failed=False, browser=None):
     return "Não foi possível baixar o vídeo. Confirme o link e as permissões de acesso."
 
 
+def stop_process(process):
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=10, check=False)
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=6)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
+def watchdog_reason(idle_seconds, elapsed_seconds,
+                    idle_limit=IDLE_TIMEOUT_SECONDS, total_limit=MAX_JOB_SECONDS):
+    if elapsed_seconds >= total_limit:
+        return "MAX_DURATION"
+    if idle_seconds >= idle_limit:
+        return "NO_ACTIVITY"
+    return None
+
+
 def run_ytdlp_attempt(job_id, command):
     process = subprocess.Popen(
         command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -231,10 +263,51 @@ def run_ytdlp_attempt(job_id, command):
     )
     with active_lock:
         active[job_id] = process
+        cancelled_jobs.discard(job_id)
     output = []
     file_path = None
     save_root = str(downloads_directory().resolve()).casefold()
-    for line in process.stdout:
+    lines = queue.Queue()
+    finished = object()
+
+    def read_process():
+        try:
+            for line in process.stdout:
+                lines.put(line)
+        finally:
+            lines.put(finished)
+
+    threading.Thread(target=read_process, daemon=True).start()
+    started_at = last_activity = last_heartbeat = time.monotonic()
+    ending = False
+    failure = None
+    while not ending:
+        now = time.monotonic()
+        with active_lock:
+            was_cancelled = job_id in cancelled_jobs
+        if was_cancelled:
+            stop_process(process)
+            failure = "CANCELED"
+            break
+        reason = watchdog_reason(now - last_activity, now - started_at)
+        if reason:
+            stop_process(process)
+            failure = "TIMEOUT"
+            break
+        if now - last_heartbeat >= HEARTBEAT_SECONDS:
+            last_heartbeat = now
+            write_message({"id": job_id, "type": "progress", "progress": 0,
+                           "message": "Aguardando resposta da fonte... "
+                                      + str(int(now - last_activity)) + " s sem progresso"})
+        try:
+            item = lines.get(timeout=1)
+        except queue.Empty:
+            continue
+        if item is finished:
+            ending = True
+            continue
+        line = item
+        last_activity = time.monotonic()
         stripped = line.strip().strip('"')
         if stripped.casefold().startswith(save_root):
             file_path = stripped
@@ -248,11 +321,19 @@ def run_ytdlp_attempt(job_id, command):
         elif "[Merger]" in line or "[ffmpeg]" in line:
             write_message({"id": job_id, "type": "progress", "progress": 99,
                            "message": "Montando áudio e vídeo..."})
-    code = process.wait()
+    if failure:
+        result_code = -15 if failure == "CANCELED" else 124
+    else:
+        try:
+            result_code = process.wait(timeout=4)
+        except subprocess.TimeoutExpired:
+            stop_process(process)
+            result_code = 124
     with active_lock:
         if active.get(job_id) is process:
             active.pop(job_id, None)
-    return code, file_path, classify_failure(output)
+        cancelled_jobs.discard(job_id)
+    return result_code, file_path, failure or classify_failure(output) 
 
 
 def run_download(job_id, url, cookies_browser=None, source_referrer=None):
@@ -282,9 +363,13 @@ def run_download(job_id, url, cookies_browser=None, source_referrer=None):
                     write_message({"id": job_id, "type": "error",
                                    "code": "OUTPUT_INVALID", "message": str(error)[:300]})
                 return
-            if returncode < 0:
+            if error_code == "TIMEOUT" or returncode == 124:
+                write_message({"id": job_id, "type": "error", "code": "SOURCE_TIMEOUT",
+                               "message": "A fonte parou de responder por 2 minutos. A transferência foi encerrada; recarregue a página antes de tentar novamente."})
+                return
+            if returncode < 0 or error_code == "CANCELED":
                 write_message({"id": job_id, "type": "error",
-                               "code": "CANCELED", "message": "Processo encerrado."})
+                               "code": "CANCELED", "message": "Processo cancelado."})
                 return
             if current_browser and error_code == "COOKIES_UNAVAILABLE" and not source_referrer:
                 cookie_failed = True
@@ -318,9 +403,10 @@ def main():
             continue
         if msg.get("cmd") == "cancel":
             with active_lock:
+                cancelled_jobs.add(job_id)
                 process = active.get(job_id)
             if process is not None:
-                process.terminate()
+                stop_process(process)
             continue
         cmd = msg.get("cmd")
         referrer = msg.get("referrer")
