@@ -298,7 +298,9 @@ function supportedNativePage(url){
     .some(domain=>host===domain||host.endsWith('.'+domain));
  }catch{return false;}
 }
-async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null) {
+async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null,quality='best') {
+ if(!['best','2160','1440','1080','720','480','360'].includes(quality))
+  throw new Error('Qualidade inválida.');
  if(![null,'brave','firefox'].includes(cookiesBrowser))throw new Error('Navegador de sessão inválido.');
  const item=await getItem(tabId,id);
  if(!item||item.type!=='Player')throw new Error('Selecione um player de vídeo reconhecido.');
@@ -353,11 +355,13 @@ async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null) 
     ' Consulte native/README.md para instalar no Chrome ou Brave.'}).catch(console.warn);
   }
  });
- port.postMessage({cmd:'download',id,url,cookiesBrowser});
+ port.postMessage({cmd:'download',id,url,cookiesBrowser,quality});
  return {ok:true,pending:true};
 }
 
-async function startNativeSource(tabId,id){
+async function startNativeSource(tabId,id,quality='best'){
+ if(!['best','2160','1440','1080','720','480','360'].includes(quality))
+  throw new Error('Qualidade inválida.');
  const item=await getItem(tabId,id);
  if(!item||!['Video','HLS'].includes(item.type))throw new Error('Escolha um arquivo de vídeo detectado nesta página.');
  if(running(item.status))throw new Error('Já existe uma transferência para este arquivo.');
@@ -393,7 +397,8 @@ async function startNativeSource(tabId,id){
   if(!state.finished)patchMedia(tabId,id,{status:'error',
     message:'Assistente local indisponível: '+(chrome.runtime.lastError?.message||'conexão encerrada')}).catch(console.warn);
  });
- port.postMessage({cmd:'downloadSource',id,url:item.url,referrer:page.origin+page.pathname});
+ port.postMessage({cmd:'downloadSource',id,url:item.url,referrer:page.origin+page.pathname,
+  quality:item.type==='HLS'?quality:'best'});
  return {ok:true,pending:true};
 }
 
@@ -479,8 +484,8 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id,msg.selectedUrl||null);
   if(msg.cmd==='getHlsQualities')return getHlsQualities(msg.tabId,msg.id);
-  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,msg.manualUrl||null);
-  if(msg.cmd==='startNativeSource')return startNativeSource(msg.tabId,msg.id);
+  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,msg.manualUrl||null,msg.quality||'best');
+  if(msg.cmd==='startNativeSource')return startNativeSource(msg.tabId,msg.id,msg.quality||'best');
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
  })().then(respond,error=>respond({ok:false,error:error.message||String(error)}));
