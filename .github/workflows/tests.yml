@@ -11,3 +11,4 @@ jobs:
         with:
           node-version: '22'
       - run: npm test
+      - run: python3 -m unittest discover -s native/tests -v
