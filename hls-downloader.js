@@ -168,19 +168,23 @@ export class StreamDownloader {
   }
 
   async prepare(preferredUrl = null) {
-    const playlist = preferredUrl ? absoluteUrl(preferredUrl, this.url) : this.url;
-    const initial = await this.inspect(playlist);
-    if (initial.media) {
-      this.parsed = initial.media;
+    // Always inspect the original master first: clients must not inject a different playlist URL.
+    const initial=await this.inspect(this.url);
+    if(initial.media){
+      if(preferredUrl&&preferredUrl!==this.url)
+       throw new Error('Esta fonte HLS possui apenas uma qualidade.');
+      this.parsed=initial.media;
       return initial.media;
     }
-    // Prefer the highest-quality rendition that includes audio in the same media stream.
-    // Never silently save a video-only rendition as a completed audiovisual file.
-    const chosen=initial.variants.find(variant=>!variant.separateAudio);
-    if(!chosen)throw new Error('Todas as qualidades HLS usam áudio separado. Abra o vídeo original e utilize o assistente local com FFmpeg para montar vídeo e áudio.');
-    const inner = await this.inspect(chosen.url);
-    if (!inner.media) throw new Error('Playlists HLS aninhadas não suportadas.');
-    this.parsed = inner.media;
+    const available=initial.variants.filter(variant=>!variant.separateAudio);
+    if(!available.length)
+      throw new Error('Todas as qualidades HLS usam áudio separado. Use o assistente local com FFmpeg.');
+    const chosen=preferredUrl?
+      available.find(variant=>variant.url===preferredUrl):available[0];
+    if(!chosen)throw new Error('Qualidade indisponível no manifesto atual. Atualize a lista de qualidades.');
+    const inner=await this.inspect(chosen.url);
+    if(!inner.media)throw new Error('Playlists HLS aninhadas não suportadas.');
+    this.parsed=inner.media;
     return inner.media;
   }
 
