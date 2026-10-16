@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 
 const source=readFileSync(new URL('../content.js',import.meta.url),'utf8');
-function simulate(links){
+function simulate(links,site='https://www.instagram.com/'){
  const messages=[];
  const anchors=links.map(href=>({href}));
  const scope={
@@ -19,7 +19,8 @@ function simulate(links){
   getBoundingClientRect:()=>({width:600,height:400,top:0,bottom:400,left:0,right:600}),
   getAttribute:()=>'',closest:()=>null,querySelectorAll:()=>[]
  };
- const location={href:'https://www.instagram.com/',hostname:'www.instagram.com',origin:'https://www.instagram.com',pathname:'/'};
+ const url=new URL(site);
+ const location={href:url.href,hostname:url.hostname,origin:url.origin,pathname:url.pathname};
  const document={
   documentElement:{},title:'Instagram',querySelector:()=>null,
   querySelectorAll:selector=>selector==='video,audio'?[video]:[],
@@ -47,4 +48,13 @@ test('no Reel link means player recognized but not a native download target',()=
  const player=simulate([]);
  assert.equal(player.pageUrl,null);
  assert.equal(player.engine,'MSE / blob');
+});
+
+test('Pinterest feed player uses one unique nearby Pin link instead of guessed preloaded HLS',()=>{
+ const p=simulate(['https://br.pinterest.com/pin/123456789012345/'],'https://br.pinterest.com/');
+ assert.equal(p.pageUrl,'https://www.pinterest.com/pin/123456789012345/');
+});
+test('Pinterest feed with multiple pins cannot select the wrong video automatically',()=>{
+ const p=simulate(['https://br.pinterest.com/pin/123456789012345/','https://br.pinterest.com/pin/987654321012345/'],'https://br.pinterest.com/');
+ assert.equal(p.pageUrl,null);
 });
