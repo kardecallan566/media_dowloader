@@ -55,6 +55,26 @@ class NativeHostTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "publicação|Reel"):
             host.command_for("https://www.instagram.com/")
 
+    def test_contextual_source_download_is_limited_to_origin_and_cdn_pair(self):
+        source = "https://cdn-s01.pixel-sus-4k-image.com/stream/h/example/07.mp4"
+        origin = "https://sushianimes.com.br/assistir/teste/episodio-7"
+        self.assertTrue(host.allowed_source(source, origin))
+        self.assertFalse(host.allowed_source(source, "https://www.instagram.com/"))
+        self.assertFalse(host.allowed_source("https://127.0.0.1/file.mp4", origin))
+        self.assertFalse(host.allowed_source("https://cdn-s01.pixel-sus-4k-image.com.private.test/x.mp4", origin))
+        self.assertFalse(host.allowed_source("http://cdn-s01.pixel-sus-4k-image.com/x.mp4", origin))
+        self.assertFalse(host.allowed_source("https://cdn-s01.pixel-sus-4k-image.com/x.html", origin))
+
+    def test_contextual_command_has_expected_referrer_and_no_cookies(self):
+        source = "https://cdn-s01.pixel-sus-4k-image.com/stream/h/example/07.mp4"
+        origin = "https://sushianimes.com.br/assistir/teste/episodio-7"
+        with patch.object(host.shutil, "which", return_value="/usr/bin/yt-dlp"):
+            with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
+                args = host.command_for_source(source, origin)
+        self.assertEqual(args[args.index("--referer") + 1], origin)
+        self.assertNotIn("--cookies-from-browser", args)
+        self.assertEqual(args[-2:], ["--", source])
+
     def test_missing_ffmpeg_reports_clear_error(self):
         with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None):
             with self.assertRaisesRegex(RuntimeError, "FFmpeg"):
