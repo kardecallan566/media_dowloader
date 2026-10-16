@@ -461,8 +461,9 @@ chrome.tabs.onUpdated.addListener((id,changes)=>{
 });
 chrome.runtime.onInstalled.addListener(details=>{
  if(details.reason==='update'&&
-   (String(details.previousVersion||'').startsWith('1.2.')||details.previousVersion==='1.6.0')){
-  // Old 1.2 network entries were not source-tagged and flood the new interface.
+   (['1.6.0','1.7.0','1.8.0'].includes(details.previousVersion)||
+    String(details.previousVersion||'').startsWith('1.2.'))){
+  // Remove stale detected media and previous authentication errors when detector behavior changes.
   chrome.storage.local.remove(STORE).catch(console.warn);
  }
 });
