@@ -13,7 +13,7 @@ let refreshTimer=null;
 let loading=false;
 const verifiedThisOpen=new Set();
 const playerSourcesOpen=new Set();
-const braveConsent=new Set();
+const sessionChoices=new Map();
 const pastedPostUrls=new Map();
 let autoTimer=null;
 const names={video:'Vídeo',image:'Imagem',audio:'Áudio'};
@@ -209,7 +209,7 @@ function mediaCard(item,index,{uncertain=false}={}){
    try{
     const answer=await chrome.runtime.sendMessage({cmd:'startNativeDownload',tabId,id:item.id,
      manualUrl:pastedPostUrls.get(item.id)||null,
-     cookiesBrowser:braveConsent.has(item.id)?'brave':null});
+     cookiesBrowser:sessionChoices.get(item.id)||null});
     if(!answer?.ok)throw new Error(answer?.error||'Não foi possível conectar ao assistente.');
    }catch(error){notify(error.message);}
    await load();
@@ -239,14 +239,26 @@ function mediaCard(item,index,{uncertain=false}={}){
   if(directPage)card.append(node('div','notice','Publicação identificada: '+directPage));
   else card.append(node('div','notice',
    'No feed, use Compartilhar → Copiar link no vídeo desejado e cole acima. Não será escolhido outro vídeo automaticamente.'));
-  const consent=node('label','cookie-consent');
-  const checkbox=document.createElement('input');
-  checkbox.type='checkbox';
-  checkbox.checked=braveConsent.has(item.id);
-  checkbox.onchange=()=>{if(checkbox.checked)braveConsent.add(item.id);else braveConsent.delete(item.id);};
-  consent.append(checkbox,node('span','',
-   'Usar sessão do Brave neste download (opcional; permite ao yt-dlp tentar ler cookies da conta)'));
-  card.append(consent);
+  const authArea=node('div','session-choice');
+  const title=node('label','session-label','Autenticação (opcional)');
+  const selector=document.createElement('select');
+  selector.className='session-select';
+  const options=[
+   ['', 'Sem sessão — recomendado para vídeos públicos'],
+   ['brave','Tentar sessão do Brave'],
+   ['firefox','Tentar sessão do Firefox (se instalado e conectado)']
+  ];
+  for(const [value,label] of options){
+   const option=document.createElement('option');option.value=value;option.textContent=label;selector.append(option);
+  }
+  selector.value=sessionChoices.get(item.id)||'';
+  selector.onchange=()=>{
+   if(selector.value)sessionChoices.set(item.id,selector.value);
+   else sessionChoices.delete(item.id);
+  };
+  authArea.append(title,selector,
+    node('div','notice','O assistente só tenta ler os cookies quando você escolhe um navegador. Se a leitura falhar, ele tentará o link público automaticamente.'));
+  card.append(authArea);
   card.append(node('div','notice','O assistente é opcional e não remove DRM. O acesso pode exigir login e a leitura de cookies pode ser bloqueada pelo Brave.'));
  }
  const detail=document.createElement('details');
