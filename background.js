@@ -271,14 +271,16 @@ function supportedNativePage(url){
     .some(domain=>host===domain||host.endsWith('.'+domain));
  }catch{return false;}
 }
-async function startNativeDownload(tabId,id,consent=false) {
+async function startNativeDownload(tabId,id,consent=false,manualUrl=null) {
  const item=await getItem(tabId,id);
  if(!item||item.type!=='Player')throw new Error('Selecione um player de vídeo reconhecido.');
  if(running(item.status))throw new Error('Já existe um download em andamento.');
  if(!item.visible||item.source!=='page')throw new Error('O player não está mais visível nesta página. Atualize a detecção.');
  const tab=await chrome.tabs.get(tabId);
  const page=canonicalMediaPageUrl(tab.url);
- const url=canonicalMediaPageUrl(item.pageUrl)||page;
+ const manual=manualUrl ? canonicalMediaPageUrl(manualUrl) : null;
+ if(manualUrl && !manual)throw new Error('Cole uma URL de Reel ou post válida, não um link do feed.');
+ const url=manual||canonicalMediaPageUrl(item.pageUrl)||page;
  if(!url){
   const message='Não identifiquei o link desta publicação. Abra o Reel/post em sua página própria (instagram.com/reel/... ou /p/...) e tente novamente.';
   await patchMedia(tabId,id,{status:'error',message});
@@ -375,7 +377,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
-  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser==='brave');
+  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser==='brave',msg.manualUrl||null);
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
  })().then(respond,error=>respond({ok:false,error:error.message||String(error)}));
