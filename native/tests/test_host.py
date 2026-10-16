@@ -2,6 +2,8 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import host
@@ -74,6 +76,36 @@ class NativeHostTests(unittest.TestCase):
         self.assertEqual(args[args.index("--referer") + 1], origin)
         self.assertNotIn("--cookies-from-browser", args)
         self.assertEqual(args[-2:], ["--", source])
+
+    def test_native_output_requires_real_video_stream(self):
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            video = folder / "sample.mp4"
+            video.write_bytes(b"0" * 20000)
+            with patch.object(host, "downloads_directory", return_value=folder):
+                with patch.object(host.shutil, "which", return_value="/usr/bin/ffprobe"):
+                    with patch.object(host.subprocess, "run", return_value=SimpleNamespace(
+                        returncode=0, stdout='{"streams":[{"codec_type":"video"}],"format":{"duration":"12.5"}}',
+                        stderr=""
+                    )):
+                        self.assertEqual(host.verify_saved_video(str(video)), video.resolve())
+                    with patch.object(host.subprocess, "run", return_value=SimpleNamespace(
+                        returncode=0, stdout='{"streams":[{"codec_type":"audio"}],"format":{"duration":"12.5"}}',
+                        stderr=""
+                    )):
+                        with self.assertRaisesRegex(RuntimeError, "faixa de vídeo"):
+                            host.verify_saved_video(str(video))
+
+    def test_native_output_rejects_small_file_and_outside_path(self):
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            tiny = folder / "tiny.mp4"
+            tiny.write_bytes(b"bad")
+            with patch.object(host, "downloads_directory", return_value=folder):
+                with self.assertRaisesRegex(RuntimeError, "pequeno"):
+                    host.verify_saved_video(str(tiny))
+                with self.assertRaisesRegex(RuntimeError, "pasta permitida"):
+                    host.verify_saved_video(str(folder.parent / "outside.mp4"))
 
     def test_missing_ffmpeg_reports_clear_error(self):
         with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None):
