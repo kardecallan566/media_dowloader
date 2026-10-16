@@ -38,6 +38,37 @@
   if(!previous||(!previous.visible&&attributes.visible))output.set('url:'+url,{url,...attributes});
   return true;
  }
+ function instagramPostUrl(raw){
+  try{
+   const u=new URL(raw,location.href);
+   if(!['instagram.com','www.instagram.com'].includes(u.hostname)||u.protocol!=='https:')return null;
+   const match=u.pathname.match(/^\/(reel|p|tv)\/([A-Za-z0-9_-]{5,40})\/?$/);
+   return match?'https://www.instagram.com/'+match[1]+'/'+match[2]+'/':null;
+  }catch{return null;}
+ }
+ function actualVideoPage(video){
+  const onPost=instagramPostUrl(location.href);
+  if(onPost)return onPost;
+  if(!/(^|\.)instagram\.com$/.test(location.hostname))return null;
+  // Only links within a single video/post container can identify that video.
+  let node=video;
+  for(let depth=0;node&&depth<9;node=node.parentElement,depth++){
+   const nearestLink=node.closest?.('a[href]');
+   if(nearestLink){
+    const direct=instagramPostUrl(nearestLink.href);
+    if(direct)return direct;
+   }
+   if(!node.querySelectorAll)continue;
+   // Do not assume the first of multiple feed posts is the active player.
+   if(node.querySelectorAll('video').length>1)break;
+   const links=[...node.querySelectorAll('a[href]')].slice(0,30)
+    .map(a=>instagramPostUrl(a.href)).filter(Boolean);
+   const distinct=[...new Set(links)];
+   if(distinct.length===1)return distinct[0];
+   if(distinct.length>1)break;
+  }
+  return null;
+ }
  function player(output,attributes){
   const id=String(attributes.playerId);
   const url=http(location.href);
@@ -62,7 +93,7 @@
    }
    if(!isAudio&&!hasDirect&&!youtube){
     const src=video.currentSrc||video.src||'';
-    player(data,{...attrs,playerId:'dom-'+key(video),engine:src.startsWith('blob:')?'MSE / blob':'player HTML5',
+    player(data,{...attrs,pageUrl:actualVideoPage(video),playerId:'dom-'+key(video),engine:src.startsWith('blob:')?'MSE / blob':'player HTML5',
       playback:true,
       note:src.startsWith('blob:')?'Player com fonte blob: o arquivo original não está no atributo src.':
        'Player encontrado, mas não disponibiliza uma URL direta de vídeo.'});
@@ -73,7 +104,7 @@
    const page=new URL(location.href);
    const current=page.searchParams.get('v')||page.pathname.split('/')[2];
    if(current===id){
-    player(data,{playerId:'yt-'+id,visible:true,label:youtube.title,
+    player(data,{playerId:'yt-'+id,pageUrl:'https://www.youtube.com/watch?v='+id,visible:true,label:youtube.title,
      thumbnail:youtube.thumbnail,duration:youtube.seconds,engine:'YouTube adaptive',
      playback:true,trackVideo:youtube.videoTracks,trackAudio:youtube.audioTracks,
      note:'Player identificado. Vídeo e áudio podem usar faixas separadas; somente fontes completas verificadas podem ser baixadas.'});
@@ -90,7 +121,8 @@
   if(instagram && /^\/reel\/[^/]+/.test(location.pathname) &&
      ![...data.values()].some(x=>x.type==='Player'||x.contentType?.startsWith('video/')||
       /\.(mp4|m4v|webm|mov)(?:[?#]|$)/i.test(x.url||''))){
-   player(data,{playerId:'instagram-reel',label:document.title||'Instagram Reel',
+   player(data,{playerId:'instagram-reel',pageUrl:instagramPostUrl(location.href),
+    label:document.title||'Instagram Reel',
     thumbnail:poster,engine:'Instagram Reel',playback:false,
     note:'Página de Reel identificada. O vídeo ainda não revelou sua fonte de download.'});
   }
@@ -116,7 +148,7 @@
    put(data,raw,{visible:false,label:document.title,contentType:cdnVideo?'video/mp4':''});
   }
   const items=[...data.values()].slice(0,42);
-  const signature=JSON.stringify(items.map(x=>[x.url,x.type,x.playerId,x.visible,x.engine,x.duration,x.trackVideo,x.trackAudio]));
+  const signature=JSON.stringify(items.map(x=>[x.url,x.type,x.playerId,x.pageUrl,x.visible,x.engine,x.duration,x.trackVideo,x.trackAudio]));
   if(!force&&signature===lastSnapshot)return;
   lastSnapshot=signature;
   chrome.runtime.sendMessage({cmd:'mediaSnapshot',items}).catch(()=>{});
