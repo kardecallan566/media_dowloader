@@ -81,7 +81,16 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
      found.height=Number(input.height)||found.height;
      changed=true;
     }
-    if(found.url!==url){found.url=url;changed=true;}
+    if(found.url!==url){
+     found.url=url;
+     // Signed CDN URLs can rotate while referring to the same media identity.
+     // A newly authorized URL must not inherit an old HTTP 403 or expiry result.
+     if(!running(found.status)){
+      found.status='ready';found.message='';found.analysis=null;found.progress=0;
+      found.downloadId=undefined;
+     }
+     changed=true;
+    }
     if(!found.key){found.key=identity;changed=true;}
     continue;
    }
