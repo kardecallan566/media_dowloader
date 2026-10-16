@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Detecta players HTML5, vídeos MSE/blob, imagens e arquivos multimídia verificáveis.",
-  "version": "1.5.0",
+  "description": "Detecta vídeos, busca arquivos completos e permite muxing opcional com assistente local.",
+  "version": "1.6.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
@@ -18,7 +18,8 @@
     "storage",
     "downloads",
     "offscreen",
-    "tabs"
+    "tabs",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "<all_urls>"
