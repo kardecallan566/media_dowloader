@@ -1,5 +1,6 @@
 import { group, sortMedia, fileExtension } from './media-utils.js';
 import { canonicalMediaPageUrl } from './media-page.js';
+import { contextualSource, preferredDownloadMethod } from './download-routing.js';
 
 const $=id=>document.getElementById(id);
 const list=$('list');
@@ -87,24 +88,12 @@ function possibleSources(player){
 }
 
 function contextualSourceAvailable(item){
- if(!['Video','HLS'].includes(item.type))return false;
- try{
-  const page=new URL(tabUrl),source=new URL(item.url);
-  if(page.protocol!=='https:'||source.protocol!=='https:')return false;
-  const origin=page.hostname.replace(/^www\./,'');
-  return (origin==='sushianimes.com.br'&&item.type==='Video'&&
-    source.hostname==='cdn-s01.pixel-sus-4k-image.com'&&/\.(mp4|webm)$/i.test(source.pathname))||
-    (origin==='topanimes.net'&&item.type==='HLS'&&
-    source.hostname==='doce-de-leite-vegano.b-cdn.net'&&/\.m3u8$/i.test(source.pathname));
- }catch{return false;}
+ return Boolean(contextualSource(tabUrl,item.url,item.type));
 }
 function hlsExpired(item){
- if(item.type!=='HLS')return false;
- try{
-  const raw=new URL(item.url).searchParams.get('expires');
-  return /^\d{10}$/.test(raw||'')&&Number(raw)*1000 <= Date.now()+15000;
- }catch{return false;}
+ return item.type==='HLS'&&preferredDownloadMethod(tabUrl,item)==='expired';
 }
+
 
 function mediaCard(item,index,{uncertain=false}={}){
  const kind=group(item.type);
@@ -153,7 +142,11 @@ function mediaCard(item,index,{uncertain=false}={}){
  const actions=node('div','media-actions');
  const isRunning=['checking','running','saving','downloading','native-connecting','native-running'].includes(item.status);
  const blocked=item.type==='Player'||item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
- const inaccessibleHls=item.type==='HLS'&&(/HTTP 40[13]/i.test(item.message||'')||hlsExpired(item));
+ const method=preferredDownloadMethod(tabUrl,item);
+ const nativeHls=item.type==='HLS'&&method==='native';
+ const expiredHls=item.type==='HLS'&&method==='expired';
+ const inaccessibleHls=item.type==='HLS'&&(/HTTP 40[13]/i.test(item.message||'')||expiredHls);
+ const browserHlsDenied=item.type==='HLS'&&/HTTP 40[13].*(playlist|segmento)/i.test(item.message||'');
  const candidates=item.type==='Player'?possibleSources(item):[];
  const button=node('button','download-btn',isRunning?'Verificando / baixando...':blocked?'Verificar novamente':item.status==='done'?'Baixar novamente':
   (item.type==='HLS'?'Baixar stream':item.analysis?.canDownload?`Baixar ${names[kind]?.toLowerCase()||'arquivo'}`:'Verificar e baixar'));
@@ -161,9 +154,10 @@ function mediaCard(item,index,{uncertain=false}={}){
  if(item.type==='Player')button.textContent=candidates.length?
   `Buscar fontes de download (${candidates.length})`:'Procurar fonte do vídeo';
  if(item.type==='DASH')button.textContent='DASH indisponível';
- if(inaccessibleHls)button.textContent=hlsExpired(item)?'Playlist expirada — atualize a página':'Playlist recusada — veja alternativa abaixo';
+ if(inaccessibleHls)button.textContent=expiredHls?'Playlist expirada — recarregue o episódio':'Playlist recusada — consulte a origem';
+ if(nativeHls)button.textContent=isRunning?'Baixando com assistente local...':'Baixar com assistente local';
  if(formatMissing)button.textContent='Formato indisponível';
- button.disabled=isRunning||inaccessibleHls||item.type==='DASH'||(formatMissing&&item.type!=='Player');
+ button.disabled=isRunning||expiredHls||(inaccessibleHls&&!nativeHls)||item.type==='DASH'||(formatMissing&&item.type!=='Player');
  button.title=item.type==='Player'?'Abrir possíveis fontes; é necessário conferir se pertencem ao vídeo atual.':
   item.type==='DASH'?'O formato DASH precisa de um muxer de áudio e vídeo.':
   formatMissing?'Não foi possível identificar a extensão do arquivo.':'';
@@ -177,7 +171,7 @@ function mediaCard(item,index,{uncertain=false}={}){
   }
   button.disabled=true;button.textContent='Preparando...';notify('');
   try{
-   const cmd=blocked?'verifyMedia':'startDownload';
+   const cmd=nativeHls?'startNativeSource':blocked?'verifyMedia':'startDownload';
    const result=await chrome.runtime.sendMessage({cmd,tabId,id:item.id,force:blocked});
    if(!result?.ok)throw new Error(result?.error||'Não foi possível verificar o arquivo.');
    if(cmd==='verifyMedia'&&result.analysis?.canDownload)notify('Fonte aprovada na verificação. Clique em Baixar para continuar.');
@@ -196,6 +190,13 @@ function mediaCard(item,index,{uncertain=false}={}){
  }
  card.append(actions);
  if(contextualSourceAvailable(item)){
+  if(item.type==='HLS'){
+   card.append(node('div','notice',expiredHls?
+    'Esta URL HLS temporária expirou. Atualize o episódio para buscar uma playlist nova.':
+    browserHlsDenied?
+    'A solicitação feita fora do player foi recusada. O botão principal agora tenta o método local com a origem autorizada da página. O servidor ainda pode negar acesso.':
+    'Para este servidor, o método local é priorizado porque o acesso direto à playlist pode ser recusado.'));
+  }else{
   const contextual=node('div','media-actions');
   const expired=hlsExpired(item);
   const viaSite=node('button','download-btn local-download',
@@ -215,6 +216,7 @@ function mediaCard(item,index,{uncertain=false}={}){
   card.append(node('div','notice',expired?
    'A playlist possui um token expirado. Recarregue o episódio no site antes de tentar novamente.':
    'Alternativa manual usando a referência da página onde o vídeo foi reproduzido. Se o CDN recusar, o assistente encerrará a tentativa e explicará o erro.'));
+  }
  }
  if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be/.test(tabUrl))){
   const directPage=canonicalMediaPageUrl(item.pageUrl)||canonicalMediaPageUrl(tabUrl);
