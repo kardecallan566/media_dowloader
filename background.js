@@ -275,7 +275,8 @@ function supportedNativePage(url){
     .some(domain=>host===domain||host.endsWith('.'+domain));
  }catch{return false;}
 }
-async function startNativeDownload(tabId,id,consent=false,manualUrl=null) {
+async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null) {
+ if(![null,'brave','firefox'].includes(cookiesBrowser))throw new Error('Navegador de sessão inválido.');
  const item=await getItem(tabId,id);
  if(!item||item.type!=='Player')throw new Error('Selecione um player de vídeo reconhecido.');
  if(running(item.status))throw new Error('Já existe um download em andamento.');
@@ -328,7 +329,7 @@ async function startNativeDownload(tabId,id,consent=false,manualUrl=null) {
     ' Consulte native/README.md para instalar no Chrome ou Brave.'}).catch(console.warn);
   }
  });
- port.postMessage({cmd:'download',id,url,cookiesBrowser:consent?'brave':null});
+ port.postMessage({cmd:'download',id,url,cookiesBrowser});
  return {ok:true,pending:true};
 }
 
@@ -351,7 +352,9 @@ async function startNativeSource(tabId,id){
  nativePorts.set(id,state);
  port.onMessage.addListener(msg=>{
   if(msg.id!==id)return;
-  if(msg.type==='started'||msg.type==='progress'){
+  if(msg.type==='warning'){
+   patchMedia(tabId,id,{status:'native-running',message:msg.message||'Tentando sem sessão...'}).catch(console.warn);
+  }else if(msg.type==='started'||msg.type==='progress'){
    patchMedia(tabId,id,{status:'native-running',progress:msg.progress??0,
     message:msg.message||'Transferindo vídeo...'}).catch(console.warn);
   }else if(msg.type==='complete'||msg.type==='error'){
@@ -421,7 +424,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
-  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser==='brave',msg.manualUrl||null);
+  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,msg.manualUrl||null);
   if(msg.cmd==='startNativeSource')return startNativeSource(msg.tabId,msg.id);
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
