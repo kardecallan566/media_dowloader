@@ -35,11 +35,13 @@ function Find-CompatiblePython {
 Write-Host "Media Finder Pro: configurando assistente local..."
 $Python = Find-CompatiblePython
 Write-Host "Python encontrado: $($Python.Executable)"
+$Interpreter = $Python.Executable
+$InterpreterArgs = @($Python.Args)
 
 # Create a dedicated build environment without requiring manual activation.
 if (-not (Test-Path $BuildPython)) {
     Write-Host "Criando ambiente de compilacao isolado..."
-    & $Python.Executable @($Python.Args) -m venv $BuildVenv
+    & $Interpreter @InterpreterArgs -m venv $BuildVenv
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $BuildPython)) {
         throw "Falha ao criar o ambiente Python. Verifique a instalacao do Python e o modulo venv."
     }
