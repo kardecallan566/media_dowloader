@@ -35,6 +35,8 @@ function hostName(item){
 }
 function statusText(item){
  if(item.type==='Player')return item.note||'Player encontrado, mas a fonte original ainda não foi identificada.';
+ if(item.status==='native-connecting')return item.message||'Conectando ao assistente local...';
+ if(item.status==='native-running')return item.message||'Baixando e montando o vídeo...';
  if(item.status==='checking')return 'Analisando tamanho, resposta HTTP e estrutura da mídia...';
  if(item.status==='blocked')return item.message||'Fonte parcial ou indisponível.';
  if(item.status==='error')return item.message||'Falha no download';
@@ -114,14 +116,14 @@ function mediaCard(item,index,{uncertain=false}={}){
  const status=statusText(item);
  if(status||item.analysis?.reason){
   card.append(node('div',['error','blocked'].includes(item.status)?'state error':'state',status||item.analysis?.reason));
-  if(item.status==='running'||item.status==='saving'){
+  if(['running','saving','native-running'].includes(item.status)){
    const track=node('div','track');
    const fill=node('div','fill');fill.style.width=`${Math.max(0,Math.min(100,item.progress||0))}%`;
    track.append(fill);card.append(track);
   }
  }
  const actions=node('div','media-actions');
- const isRunning=['checking','running','saving','downloading'].includes(item.status);
+ const isRunning=['checking','running','saving','downloading','native-connecting','native-running'].includes(item.status);
  const blocked=item.type==='Player'||item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
  const candidates=item.type==='Player'?possibleSources(item):[];
  const button=node('button','download-btn',isRunning?'Verificando / baixando...':blocked?'Verificar novamente':item.status==='done'?'Baixar novamente':
@@ -163,6 +165,25 @@ function mediaCard(item,index,{uncertain=false}={}){
   actions.append(cancel);
  }
  card.append(actions);
+ if(item.type==='Player' && (/instagram\\.com|youtube\\.com|youtu\\.be/.test(tabUrl))){
+  const nativeControls=node('div','media-actions native-actions');
+  const nativeButton=node('button','download-btn local-download',isRunning?'Processando com assistente...':'Baixar completo com assistente local');
+  nativeButton.disabled=isRunning;
+  nativeButton.onclick=async()=>{
+   nativeButton.disabled=true;nativeButton.textContent='Conectando...';notify('');
+   try{
+    const answer=await chrome.runtime.sendMessage({cmd:'startNativeDownload',tabId,id:item.id});
+    if(!answer?.ok)throw new Error(answer?.error||'Não foi possível conectar ao assistente.');
+   }catch(error){notify(error.message);}
+   await load();
+  };
+  const help=node('button','cancel-btn','Configurar');
+  help.title='Instruções de instalação do assistente local no Chrome ou Brave';
+  help.onclick=()=>chrome.tabs.create({url:'https://github.com/kardecallan566/media_dowloader/blob/main/native/README.md'});
+  nativeControls.append(nativeButton,help);
+  card.append(nativeControls);
+  card.append(node('div','notice','Opcional: utiliza yt-dlp e FFmpeg instalados no seu PC. Não contorna DRM e pode exigir acesso autorizado ao conteúdo.'));
+ }
  const detail=document.createElement('details');
  const summary=document.createElement('summary');summary.textContent=uncertain?'Ver origem da fonte':'Detalhes técnicos';
  const url=node('div','raw-url',item.url);detail.append(summary,url);card.append(detail);
