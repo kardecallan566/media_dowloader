@@ -57,6 +57,14 @@ class NativeHostTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "publicação|Reel"):
             host.command_for("https://www.instagram.com/")
 
+    def test_pinterest_exact_pin_supported_without_allowing_feed_or_profile(self):
+        self.assertTrue(host.allowed_url("https://www.pinterest.com/pin/123456789012345/"))
+        self.assertTrue(host.allowed_url("https://br.pinterest.com/pin/123456789012345/"))
+        for url in ("https://www.pinterest.com/", "https://br.pinterest.com/search/pins/?q=anime",
+                    "https://www.pinterest.com/myprofile/", "https://www.pinterest.com/pin/random/",
+                    "https://evilpinterest.com/pin/123456789012345/"):
+            self.assertFalse(host.allowed_url(url))
+
     def test_contextual_source_download_is_limited_to_origin_and_cdn_pair(self):
         source = "https://cdn-s01.pixel-sus-4k-image.com/stream/h/example/07.mp4"
         origin = "https://sushianimes.com.br/assistir/teste/episodio-7"
