@@ -1,4 +1,5 @@
 import { group, sortMedia, fileExtension } from './media-utils.js';
+import { canonicalMediaPageUrl } from './media-page.js';
 
 const $=id=>document.getElementById(id);
 const list=$('list');
@@ -12,6 +13,7 @@ let refreshTimer=null;
 let loading=false;
 const verifiedThisOpen=new Set();
 const playerSourcesOpen=new Set();
+const braveConsent=new Set();
 let autoTimer=null;
 const names={video:'Vídeo',image:'Imagem',audio:'Áudio'};
 const icons={video:'▶',image:'▧',audio:'♫'};
@@ -166,13 +168,16 @@ function mediaCard(item,index,{uncertain=false}={}){
  }
  card.append(actions);
  if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be/.test(tabUrl))){
+  const directPage=canonicalMediaPageUrl(item.pageUrl)||canonicalMediaPageUrl(tabUrl);
   const nativeControls=node('div','media-actions native-actions');
-  const nativeButton=node('button','download-btn local-download',isRunning?'Processando com assistente...':'Baixar completo com assistente local');
-  nativeButton.disabled=isRunning;
+  const nativeButton=node('button','download-btn local-download',isRunning?'Processando com assistente...':
+   directPage?'Baixar publicação com assistente local':'Abra o Reel ou postagem para baixar');
+  nativeButton.disabled=isRunning||!directPage;
   nativeButton.onclick=async()=>{
    nativeButton.disabled=true;nativeButton.textContent='Conectando...';notify('');
    try{
-    const answer=await chrome.runtime.sendMessage({cmd:'startNativeDownload',tabId,id:item.id});
+    const answer=await chrome.runtime.sendMessage({cmd:'startNativeDownload',tabId,id:item.id,
+     cookiesBrowser:braveConsent.has(item.id)?'brave':null});
     if(!answer?.ok)throw new Error(answer?.error||'Não foi possível conectar ao assistente.');
    }catch(error){notify(error.message);}
    await load();
@@ -182,7 +187,21 @@ function mediaCard(item,index,{uncertain=false}={}){
   help.onclick=()=>chrome.tabs.create({url:'https://github.com/kardecallan566/media_dowloader/blob/main/native/README.md'});
   nativeControls.append(nativeButton,help);
   card.append(nativeControls);
-  card.append(node('div','notice','Opcional: utiliza yt-dlp e FFmpeg instalados no seu PC. Não contorna DRM e pode exigir acesso autorizado ao conteúdo.'));
+  if(directPage){
+   card.append(node('div','notice','Publicação selecionada: '+directPage));
+   const consent=node('label','cookie-consent');
+   const checkbox=document.createElement('input');
+   checkbox.type='checkbox';
+   checkbox.checked=braveConsent.has(item.id);
+   checkbox.onchange=()=>{if(checkbox.checked)braveConsent.add(item.id);else braveConsent.delete(item.id);};
+   consent.append(checkbox,node('span','',
+    'Usar sessão do Brave neste download (opcional; permite ao yt-dlp tentar ler cookies da conta)'));
+   card.append(consent);
+  }else{
+   card.append(node('div','notice',
+    'Esta tela é o feed do Instagram, não um Reel específico. Abra a publicação pelo link /reel/... ou /p/... e atualize a extensão; não é seguro escolher um vídeo aleatório do feed.'));
+  }
+  card.append(node('div','notice','O assistente é opcional e não remove DRM. O acesso pode exigir login e a leitura de cookies pode ser bloqueada pelo Brave.'));
  }
  const detail=document.createElement('details');
  const summary=document.createElement('summary');summary.textContent=uncertain?'Ver origem da fonte':'Detalhes técnicos';
