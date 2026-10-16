@@ -1,4 +1,16 @@
-# Media Finder Pro · v1.7.0
+# Media Finder Pro · v1.8.0
+
+## Nova implementação: links específicos e CDN de mídia
+
+**Instagram:** se o Reel reproduz no feed, mas o player tem `src="blob:..."` sem permalink identificável, use **Compartilhar → Copiar link** na publicação e cole no campo do card. O botão envia **somente** um link válido de Reel/post ao assistente. Quando o link já é identificado na página, não é necessário colá-lo. Para publicações que exigem autenticação, a leitura da sessão do Brave permanece **opcional e com consentimento explícito**. Essa alternativa não remove DRM nem contorna bloqueios de autenticação.
+
+**Sites com player HTML5:** a extensão distingue a mídia pedida pelo próprio player (status da requisição e origem) de um link acessado fora do site. No caso testado, `sushianimes.com.br` → `cdn-s01.pixel-sus-4k-image.com`, há uma opção **Tentar download pela página de origem**: o assistente pode solicitar a URL com a referência normal da página original. Isso não executa CAPTCHA, não altera mecanismos de proteção, não lê cookies do CDN e **não garante** contornar HTTP 403 ou políticas do servidor. Por segurança, essa tentativa adicional está limitada ao par de hosts verificado no projeto.
+
+As URLs precisam corresponder a mídias observadas na aba; a extensão não usa um URL genérico de outra postagem, nem salva uma página de erro como se fosse vídeo. Os caminhos HLS/DASH/DRM continuam com suas limitações técnicas.
+
+**Importante:** após `git pull origin main`, recarregue a extensão em `brave://extensions` e **recompile o assistente local** com `native/install.ps1`, pois o executável `mediafinder_native.exe` não muda com o `git pull`. Reinicie o Brave. Confirme **v1.8.0** no rodapé da extensão.
+
+---
 
 ## Correção: Instagram retorna “Unsupported URL” ou exige cookies
 
