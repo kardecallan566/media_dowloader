@@ -1,4 +1,16 @@
-# Media Finder Pro · v1.10.0
+# Media Finder Pro · v1.10.1
+
+## Correção do erro "Failed to execute 'fetch' on 'Window': Illegal invocation"
+
+O downloader HLS estava recebendo a função nativa `fetch` e invocando-a como método da instância `StreamDownloader`. Em navegadores Chromium, isso causa **Illegal invocation** antes mesmo de ler a playlist. A chamada foi corrigida para preservar o contexto do navegador, tanto para playlists quanto para segmentos TS.
+
+A versão contém testes de regressão simulando a exigência do contexto do `fetch` do navegador e testes da injeção de cliente HTTP. Os controles de tempo, erros 401/403, links expirados e download nativo opcional continuam ativos.
+
+**Instalação:** execute `git pull origin main` no diretório da extensão, abra `brave://extensions`, clique em **Recarregar** e atualize a aba com o vídeo. Confira `v1.10.1` no rodapé. **Não é necessário executar `native/install.ps1` ou recompilar o executável:** os arquivos Python não mudaram.
+
+A atualização corrige um bug local de execução, mas não transforma uma resposta HTTP 403 em autorização de download. Vídeos HLS protegidos ou indisponíveis continuarão apresentando erro.
+
+---
 
 ## Correções de estabilidade para sites de vídeo
 
