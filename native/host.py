@@ -288,7 +288,7 @@ def run_ytdlp_attempt(job_id, command):
     )
     with active_lock:
         active[job_id] = process
-        cancelled_jobs.discard(job_id)
+        # Preserve cancellation if it arrived while the subprocess was starting.
     output = []
     file_path = None
     save_root = str(downloads_directory().resolve()).casefold()
