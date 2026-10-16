@@ -479,10 +479,26 @@ chrome.tabs.onUpdated.addListener((id,changes)=>{
  if(changes.url)clearTab(id).catch(console.warn);
 });
 chrome.runtime.onInstalled.addListener(details=>{
- if(details.reason==='update'&&
-   (['1.6.0','1.7.0','1.8.0'].includes(details.previousVersion)||
-    String(details.previousVersion||'').startsWith('1.2.'))){
-  // Remove stale detected media and previous authentication errors when detector behavior changes.
+ if(details.reason!=='update')return;
+ if(['1.6.0','1.7.0','1.8.0'].includes(details.previousVersion)||
+   String(details.previousVersion||'').startsWith('1.2.')){
+  // Remove obsolete detector entries from older releases.
   chrome.storage.local.remove(STORE).catch(console.warn);
+ }else if(details.previousVersion==='1.10.0'){
+  // Clear the stale HLS fetch receiver error after upgrading; keep other media states.
+  serial(async()=>{
+   const {mediaStore={}}=await chrome.storage.local.get(STORE);
+   let changed=false;
+   for(const entries of Object.values(mediaStore)){
+    for(const item of entries){
+     if(item.type==='HLS'&&item.status==='error'&&/Illegal invocation/i.test(item.message||'')){
+      item.status='ready';item.progress=0;item.analysis=null;
+      item.message='Erro de fetch corrigido na v1.10.1. Tente baixar novamente.';
+      changed=true;
+     }
+    }
+   }
+   if(changed)await chrome.storage.local.set({mediaStore});
+  }).catch(console.warn);
  }
 });
