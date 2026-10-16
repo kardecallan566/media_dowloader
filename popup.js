@@ -34,7 +34,6 @@ function hostName(item){
  catch{return 'Fonte detectada';}
 }
 function statusText(item){
- if(item.type==='Player')return item.note||'Player encontrado, mas a fonte original ainda não foi identificada.';
  if(item.status==='native-connecting')return item.message||'Conectando ao assistente local...';
  if(item.status==='native-running')return item.message||'Baixando e montando o vídeo...';
  if(item.status==='checking')return 'Analisando tamanho, resposta HTTP e estrutura da mídia...';
@@ -42,6 +41,7 @@ function statusText(item){
  if(item.status==='error')return item.message||'Falha no download';
  if(item.status==='canceled')return 'Download cancelado';
  if(item.status==='done')return item.message||'Download concluído';
+ if(item.type==='Player')return item.note||'Player encontrado, mas a fonte original ainda não foi identificada.';
  if(item.status==='running'||item.status==='saving'||item.status==='downloading')return item.message||'Processando download...';
  return '';
 }
@@ -165,7 +165,7 @@ function mediaCard(item,index,{uncertain=false}={}){
   actions.append(cancel);
  }
  card.append(actions);
- if(item.type==='Player' && (/instagram\\.com|youtube\\.com|youtu\\.be/.test(tabUrl))){
+ if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be/.test(tabUrl))){
   const nativeControls=node('div','media-actions native-actions');
   const nativeButton=node('button','download-btn local-download',isRunning?'Processando com assistente...':'Baixar completo com assistente local');
   nativeButton.disabled=isRunning;
