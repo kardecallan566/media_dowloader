@@ -1,0 +1,14 @@
+# Native Messaging helper: local build artifacts and personal browser registration
+native/.build-venv/
+native/build/
+native/dist/
+native/*.spec
+native/com.mediafinder.bridge.json
+native/__pycache__/
+native/tests/__pycache__/
+*.py[cod]
+
+# Local dependencies / IDE files
+node_modules/
+.venv/
+.vscode/
