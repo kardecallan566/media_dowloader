@@ -183,7 +183,7 @@ def classify_failure(output):
     cookie_patterns = (
         "could not copy", "cookie database", "failed to decrypt",
         "could not decrypt", "unable to decrypt", "app-bound",
-        "cookie extraction", "extracting cookies", "dpapi",
+        "failed to extract cookies", "error decrypting", "dpapi",
     )
     if any(pattern in lower for pattern in cookie_patterns):
         if ("cookie" in lower or "dpapi" in lower or "decrypt" in lower):
