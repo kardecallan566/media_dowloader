@@ -86,3 +86,21 @@ test('injected fetch is called as a plain function, not as downloader method',as
  await downloader.prepare();
  assert.equal(thisValue,undefined);
 });
+
+test('master playlist falls back from video-only to a variant with muxed audio',async()=>{
+ const manifest='#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a1",URI="audio.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=3000000,AUDIO="a1"\nhigh.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1000000\nstandard.m3u8';
+ const media='#EXTM3U\n#EXTINF:5,\nvideo.ts\n#EXT-X-ENDLIST';
+ const requested=[];
+ const fetcher=async url=>{requested.push(url);return {status:200,ok:true,text:async()=>url.endsWith('master.m3u8')?manifest:media};};
+ const job=new StreamDownloader('https://example.org/master.m3u8',{fetcher});
+ await job.prepare();
+ assert.ok(requested.some(url=>url.endsWith('standard.m3u8')));
+ assert.ok(!requested.some(url=>url.endsWith('high.m3u8')));
+});
+test('all HLS qualities with separate audio fail clearly instead of saving silent video',async()=>{
+ const master='#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",URI="sound.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,AUDIO="a"\nvideo.m3u8';
+ const job=new StreamDownloader('https://example.org/master.m3u8',{
+  fetcher:async()=>({status:200,ok:true,text:async()=>master})
+ });
+ await assert.rejects(job.prepare(),/áudio separado/);
+});
