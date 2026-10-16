@@ -218,7 +218,8 @@ function mediaCard(item,index,{uncertain=false}={}){
    'Alternativa manual usando a referência da página onde o vídeo foi reproduzido. Se o CDN recusar, o assistente encerrará a tentativa e explicará o erro.'));
   }
  }
- if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be/.test(tabUrl))){
+ if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be|pinterest\.com/.test(tabUrl))){
+  const isPinterest=/pinterest\.com/.test(tabUrl);
   const directPage=canonicalMediaPageUrl(item.pageUrl)||canonicalMediaPageUrl(tabUrl);
   const priorPasted=pastedPostUrls.get(item.id)||'';
   const nativeControls=node('div','media-actions native-actions');
@@ -243,10 +244,10 @@ function mediaCard(item,index,{uncertain=false}={}){
   card.append(nativeControls);
   if(!directPage){
    const entry=node('div','manual-post');
-   entry.append(node('div','section-title','Link do Reel ou post'));
+   entry.append(node('div','section-title',isPinterest?'Link do Pin com vídeo':'Link do Reel ou post'));
    const input=document.createElement('input');
    input.type='url';input.className='manual-post-input';
-   input.placeholder='https://www.instagram.com/reel/.../';
+   input.placeholder=isPinterest?'https://www.pinterest.com/pin/123456789/':'https://www.instagram.com/reel/.../';
    input.setAttribute('aria-label','Link específico da publicação');
    input.value=priorPasted;
    input.oninput=()=>{
@@ -259,7 +260,8 @@ function mediaCard(item,index,{uncertain=false}={}){
    card.append(entry);
   }
   if(directPage)card.append(node('div','notice','Publicação identificada: '+directPage));
-  else card.append(node('div','notice',
+  else card.append(node('div','notice',isPinterest?
+   'Abra o Pin de vídeo e copie seu link /pin/número/. Não escolha aleatoriamente uma das playlists pré-carregadas no feed.':
    'No feed, use Compartilhar → Copiar link no vídeo desejado e cole acima. Não será escolhido outro vídeo automaticamente.'));
   const authArea=node('div','session-choice');
   const title=node('label','session-label','Autenticação (opcional)');
@@ -281,7 +283,7 @@ function mediaCard(item,index,{uncertain=false}={}){
   authArea.append(title,selector,
     node('div','notice','O assistente só tenta ler os cookies quando você escolhe um navegador. Se a leitura falhar, ele tentará o link público automaticamente.'));
   card.append(authArea);
-  card.append(node('div','notice','O assistente é opcional e não remove DRM. O acesso pode exigir login e a leitura de cookies pode ser bloqueada pelo Brave.'));
+  card.append(node('div','notice','O assistente é opcional e não remove DRM. Ele baixa somente mídia acessível e pode exigir acesso autorizado.'));
  }
  const detail=document.createElement('details');
  const summary=document.createElement('summary');summary.textContent=uncertain?'Ver origem da fonte':'Detalhes técnicos';
