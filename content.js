@@ -46,23 +46,34 @@
    return match?'https://www.instagram.com/'+match[1]+'/'+match[2]+'/':null;
   }catch{return null;}
  }
+ function pinterestPinUrl(raw){
+  try{
+   const u=new URL(raw,location.href);
+   if(u.protocol!=='https:'||!(u.hostname==='pinterest.com'||
+      /^(?:www|[a-z]{2})\.pinterest\.com$/.test(u.hostname)))return null;
+   const match=u.pathname.match(/^\/pin\/(\d{6,30})\/?$/);
+   return match?'https://www.pinterest.com/pin/'+match[1]+'/':null;
+  }catch{return null;}
+ }
  function actualVideoPage(video){
-  const onPost=instagramPostUrl(location.href);
+  const isPinterest=/(^|\.)pinterest\.com$/.test(location.hostname);
+  const onPost=instagramPostUrl(location.href)||pinterestPinUrl(location.href);
   if(onPost)return onPost;
-  if(!/(^|\.)instagram\.com$/.test(location.hostname))return null;
+  if(!/(^|\.)instagram\.com$/.test(location.hostname)&&!isPinterest)return null;
+  const parse=isPinterest?pinterestPinUrl:instagramPostUrl;
   // Only links within a single video/post container can identify that video.
   let node=video;
   for(let depth=0;node&&depth<9;node=node.parentElement,depth++){
    const nearestLink=node.closest?.('a[href]');
    if(nearestLink){
-    const direct=instagramPostUrl(nearestLink.href);
+    const direct=parse(nearestLink.href);
     if(direct)return direct;
    }
    if(!node.querySelectorAll)continue;
    // Do not assume the first of multiple feed posts is the active player.
    if(node.querySelectorAll('video').length>1)break;
    const links=[...node.querySelectorAll('a[href]')].slice(0,30)
-    .map(a=>instagramPostUrl(a.href)).filter(Boolean);
+    .map(a=>parse(a.href)).filter(Boolean);
    const distinct=[...new Set(links)];
    if(distinct.length===1)return distinct[0];
    if(distinct.length>1)break;
