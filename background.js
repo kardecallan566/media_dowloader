@@ -281,7 +281,7 @@ function supportedNativePage(url){
   const target=new URL(url);
   const host=target.hostname.toLowerCase();
   return target.protocol==='https:'&&
-   ['instagram.com','youtube.com','youtube-nocookie.com','youtu.be']
+   ['instagram.com','youtube.com','youtube-nocookie.com','youtu.be','pinterest.com']
     .some(domain=>host===domain||host.endsWith('.'+domain));
  }catch{return false;}
 }
@@ -307,8 +307,9 @@ async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null) 
   const targetHost=new URL(url).hostname.replace(/^www\./,'');
   const instagram=host=>host==='instagram.com';
   const youtube=host=>['youtube.com','m.youtube.com','music.youtube.com','youtu.be','youtube-nocookie.com'].includes(host);
+  const pinterest=host=>host==='pinterest.com'||/^[a-z]{2}\.pinterest\.com$/.test(host);
   if(!(tabHost===targetHost||(instagram(tabHost)&&instagram(targetHost))||
-    (youtube(tabHost)&&youtube(targetHost))))
+    (youtube(tabHost)&&youtube(targetHost))||(pinterest(tabHost)&&pinterest(targetHost))))
    throw new Error('O link detectado não pertence à página atual.');
  }
  await patchMedia(tabId,id,{status:'native-connecting',progress:0,message:'Conectando ao assistente local...'});
