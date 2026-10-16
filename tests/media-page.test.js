@@ -35,3 +35,16 @@ test('a candidate is resolved only when there is exactly one unique matching pos
  assert.equal(uniquePostUrl(['https://instagram.com/p/ABC123/',
   'https://instagram.com/reel/XYZ123/']),null);
 });
+
+test('Pinterest Pin URL is accepted, while feed and profile are rejected',()=>{
+ assert.equal(canonicalMediaPageUrl('https://br.pinterest.com/pin/123456789012345/?utm_medium=foo'),
+  'https://www.pinterest.com/pin/123456789012345/');
+ assert.equal(canonicalMediaPageUrl('https://www.pinterest.com/pin/123456789012345/'),
+  'https://www.pinterest.com/pin/123456789012345/');
+ for(const url of ['https://br.pinterest.com/','https://br.pinterest.com/user/',
+  'https://pinterest.com/search/pins/?q=test',
+  'https://pinterest.com/pin/notanumber/',
+  'https://pinterest.com.evil.test/pin/123456789012345/']){
+  assert.equal(canonicalMediaPageUrl(url),null,url);
+ }
+});
