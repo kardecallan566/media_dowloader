@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --check background.js && node --check content.js && node --check popup.js && node --check offscreen.js && node --check media-utils.js && node --check hls-downloader.js && node --test tests/*.test.js"
+    "test": "node --check background.js && node --check content.js && node --check popup.js && node --check offscreen.js && node --check range-downloader.js && node --check youtube-detector.js && node --check media-utils.js && node --check hls-downloader.js && node --test tests/*.test.js"
   },
   "engines": {
     "node": ">=20"
