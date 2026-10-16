@@ -2,6 +2,7 @@ import { normalizedUrl, mediaType, mediaKey, shouldIgnoreNetwork, ranking, fileE
 import { validateProbe, parseRange } from './download-check.js';
 import { evaluateRangedPreview, RANGE_MAX_BYTES } from './range-downloader.js';
 import { canonicalMediaPageUrl } from './media-page.js';
+import { contextualSource, signedExpiry } from './download-routing.js';
 
 const STORE='mediaStore';
 let operations=Promise.resolve();
@@ -349,20 +350,11 @@ async function startNativeSource(tabId,id){
  const tab=await chrome.tabs.get(tabId);
  const page=new URL(tab.url||'');
  const source=new URL(item.url);
- const originHost=page.hostname.replace(/^www\./,'');
- const permittedPage=originHost==='sushianimes.com.br'||originHost==='topanimes.net';
- const permittedSource=(originHost==='sushianimes.com.br'&&item.type==='Video'&&
-    source.hostname==='cdn-s01.pixel-sus-4k-image.com'&&/\.(?:mp4|webm)$/i.test(source.pathname))||
-    (originHost==='topanimes.net'&&item.type==='HLS'&&
-    source.hostname==='doce-de-leite-vegano.b-cdn.net'&&/\.m3u8$/i.test(source.pathname));
- if(!permittedPage||!permittedSource||page.protocol!=='https:'||source.protocol!=='https:')
+ if(!contextualSource(tab.url,item.url,item.type))
   throw new Error('Download contextual indisponível para esta combinação de página e servidor.');
  if(item.source!=='network'&&item.source!=='page')throw new Error('Fonte não reconhecida nesta aba.');
- if(item.type==='HLS'){
-  const expiry=new URL(item.url).searchParams.get('expires');
-  if(expiry&&/^\d{10,13}$/.test(expiry)&&Number(expiry)<Date.now()/1000+15)
-   throw new Error('Link HLS temporário expirado. Atualize a página para capturar um novo manifesto.');
- }
+ if(item.type==='HLS'&&signedExpiry(item.url)?.expired)
+  throw new Error('Link HLS temporário expirado. Atualize a página para capturar um novo manifesto.');
  await patchMedia(tabId,id,{status:'native-connecting',message:'Tentando baixar com a referência da página...',progress:0});
  const port=chrome.runtime.connectNative('com.mediafinder.bridge');
  const state={port,tabId,id,finished:false};
