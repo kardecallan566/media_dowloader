@@ -14,6 +14,7 @@ let loading=false;
 const verifiedThisOpen=new Set();
 const playerSourcesOpen=new Set();
 const braveConsent=new Set();
+const pastedPostUrls=new Map();
 let autoTimer=null;
 const names={video:'Vídeo',image:'Imagem',audio:'Áudio'};
 const icons={video:'▶',image:'▧',audio:'♫'};
@@ -169,14 +170,17 @@ function mediaCard(item,index,{uncertain=false}={}){
  card.append(actions);
  if(item.type==='Player' && (/instagram\.com|youtube\.com|youtu\.be/.test(tabUrl))){
   const directPage=canonicalMediaPageUrl(item.pageUrl)||canonicalMediaPageUrl(tabUrl);
+  const priorPasted=pastedPostUrls.get(item.id)||'';
   const nativeControls=node('div','media-actions native-actions');
   const nativeButton=node('button','download-btn local-download',isRunning?'Processando com assistente...':
-   directPage?'Baixar publicação com assistente local':'Abra o Reel ou postagem para baixar');
-  nativeButton.disabled=isRunning||!directPage;
+   directPage?'Baixar publicação com assistente local':
+   canonicalMediaPageUrl(priorPasted)?'Baixar link informado':'Informe o link da publicação');
+  nativeButton.disabled=isRunning||!(directPage||canonicalMediaPageUrl(priorPasted));
   nativeButton.onclick=async()=>{
    nativeButton.disabled=true;nativeButton.textContent='Conectando...';notify('');
    try{
     const answer=await chrome.runtime.sendMessage({cmd:'startNativeDownload',tabId,id:item.id,
+     manualUrl:pastedPostUrls.get(item.id)||null,
      cookiesBrowser:braveConsent.has(item.id)?'brave':null});
     if(!answer?.ok)throw new Error(answer?.error||'Não foi possível conectar ao assistente.');
    }catch(error){notify(error.message);}
@@ -187,8 +191,25 @@ function mediaCard(item,index,{uncertain=false}={}){
   help.onclick=()=>chrome.tabs.create({url:'https://github.com/kardecallan566/media_dowloader/blob/main/native/README.md'});
   nativeControls.append(nativeButton,help);
   card.append(nativeControls);
-  if(directPage){
-   card.append(node('div','notice','Publicação selecionada: '+directPage));
+  if(!directPage){
+   const entry=node('div','manual-post');
+   entry.append(node('div','section-title','Link do Reel ou post'));
+   const input=document.createElement('input');
+   input.type='url';input.className='manual-post-input';
+   input.placeholder='https://www.instagram.com/reel/.../';
+   input.setAttribute('aria-label','Link específico da publicação');
+   input.value=priorPasted;
+   input.oninput=()=>{
+    pastedPostUrls.set(item.id,input.value.trim());
+    const valid=canonicalMediaPageUrl(input.value.trim());
+    nativeButton.disabled=isRunning||!valid;
+    nativeButton.textContent=valid?'Baixar link informado':'Informe o link da publicação';
+   };
+   entry.append(input);
+   card.append(entry);
+  }
+  if(directPage || canonicalMediaPageUrl(priorPasted)){
+   if(directPage)card.append(node('div','notice','Publicação identificada: '+directPage));
    const consent=node('label','cookie-consent');
    const checkbox=document.createElement('input');
    checkbox.type='checkbox';
@@ -199,7 +220,7 @@ function mediaCard(item,index,{uncertain=false}={}){
    card.append(consent);
   }else{
    card.append(node('div','notice',
-    'Esta tela é o feed do Instagram, não um Reel específico. Abra a publicação pelo link /reel/... ou /p/... e atualize a extensão; não é seguro escolher um vídeo aleatório do feed.'));
+    'No feed, use Compartilhar → Copiar link no vídeo desejado e cole acima. Não será escolhido outro vídeo automaticamente.'));
   }
   card.append(node('div','notice','O assistente é opcional e não remove DRM. O acesso pode exigir login e a leitura de cookies pode ser bloqueada pelo Brave.'));
  }
