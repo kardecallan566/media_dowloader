@@ -19,6 +19,10 @@ export function canonicalMediaPageUrl(raw) {
  }
  if(host==='youtu.be'&&segments.length===1&&/^[\w-]{11}$/.test(segments[0]))
   return 'https://www.youtube.com/watch?v='+segments[0];
+ if((host==='pinterest.com'||/^[a-z]{2}\.pinterest\.com$/.test(host)||
+     host==='www.pinterest.com')&&segments.length===2&&segments[0]==='pin'&&
+     /^\d{6,30}$/.test(segments[1]))
+  return 'https://www.pinterest.com/pin/'+segments[1]+'/';
  return null;
 }
 export function uniquePostUrl(candidates) {
