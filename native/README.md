@@ -1,4 +1,10 @@
-# Assistente nativo Media Finder Pro · v1.9.0
+# Assistente local · atualizações v1.10.0
+
+**A versão nova do código Python precisa ser recompilada**: `git pull origin main` → `powershell -ExecutionPolicy Bypass -File .\native\install.ps1 -ExtensionId SEU_ID` → reiniciar Brave.
+
+O assistente agora encerra downloads sem resposta por 2 minutos, emite mensagens de espera e possui cancelamento mais confiável. Para a playlist HLS observada em TopAnimes, aceita explicitamente a combinação site/CDN identificada e tenta o download com `Referer` original, sem cookies de outros sites e sem remover DRM. HTTP 403 permanece um erro se o servidor negar a requisição. Não forneça links assinados a terceiros.
+
+---
 
 O Media Finder Pro funciona sozinho para URLs de arquivo e HLS VOD compatíveis. Para páginas que apenas oferecem um player `blob:/MSE` ou vídeo/áudio separados, o **assistente local opcional** pode tentar obter o arquivo original e montar vídeo + áudio corretamente com **yt-dlp + FFmpeg**.
 
