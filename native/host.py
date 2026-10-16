@@ -1,7 +1,7 @@
 """Optional Chrome/Brave Native Messaging helper using yt-dlp + FFmpeg.
 
 Each action is initiated by an explicit click in the extension. Nothing listens on a port.
-No credentials, cookies, DRM bypass, or scripted page capture.
+Optional browser sessions are used only with explicit user opt-in. No DRM bypass.
 """
 import json
 import os
@@ -116,7 +116,7 @@ def downloads_directory():
 def command_for(url, cookies_browser=None):
     if not allowed_url(url):
         raise RuntimeError("Abra uma publicação ou Reel específico, não a página inicial.")
-    if cookies_browser not in (None, "brave"):
+    if cookies_browser not in (None, "brave", "firefox"):
         raise RuntimeError("Navegador de sessão não permitido.")
     ytdlp = shutil.which("yt-dlp")
     ffmpeg = shutil.which("ffmpeg")
@@ -135,8 +135,8 @@ def command_for(url, cookies_browser=None):
         "--output", "%(title).100B__%(id)s.%(ext)s",
         "--print", "after_move:filepath"
     ]
-    if cookies_browser == "brave":
-        arguments.extend(["--cookies-from-browser", "brave"])
+    if cookies_browser in ("brave", "firefox"):
+        arguments.extend(["--cookies-from-browser", cookies_browser])
     arguments.extend(["--", url])
     return arguments
 
@@ -177,70 +177,128 @@ def parse_percent(line):
     return min(99, max(0, int(float(match.group(1)))))
 
 
+def classify_failure(output):
+    """Classify errors without exposing browser cookie data or signed media URLs."""
+    lower = "\n".join(output).casefold()
+    cookie_patterns = (
+        "could not copy", "cookie database", "failed to decrypt",
+        "could not decrypt", "unable to decrypt", "app-bound",
+        "cookie extraction", "extracting cookies", "dpapi",
+    )
+    if any(pattern in lower for pattern in cookie_patterns):
+        if ("cookie" in lower or "dpapi" in lower or "decrypt" in lower):
+            return "COOKIES_UNAVAILABLE"
+    if any(phrase in lower for phrase in (
+        "login required", "login_required", "log in to", "login to",
+        "cookies-to-yt-dlp", "authentication required", "please log in",
+    )):
+        return "AUTH_REQUIRED"
+    if "unsupported url" in lower:
+        return "INVALID_SOURCE"
+    if any(phrase in lower for phrase in ("http error 403", "forbidden", "access denied", "blocked", "cloudflare")):
+        return "ACCESS_DENIED"
+    return "DOWNLOAD_FAILED"
+
+
+def failure_message(code, cookie_failed=False, browser=None):
+    if code == "COOKIES_UNAVAILABLE":
+        return ("O navegador protege a leitura da sessão. Não é possível extrair os cookies "
+                "com segurança por este método. Tente sem sessão, ou use um navegador "
+                "compatível no qual você esteja autenticado.")
+    if cookie_failed and code == "AUTH_REQUIRED":
+        return ("O Brave protegeu os cookies e a tentativa pública exigiu login. "
+                "O assistente não consegue acessar esta publicação por esses métodos. "
+                "Use uma opção de download autorizada pela plataforma.")
+    if code == "AUTH_REQUIRED":
+        return ("Esta publicação exige login ou permissão. Sem acesso autorizado, "
+                "não é possível baixar o arquivo.")
+    if code == "ACCESS_DENIED":
+        return ("O servidor recusou a transferência. O assistente não ignora controles "
+                "de acesso ou desafios de proteção.")
+    if code == "INVALID_SOURCE":
+        return "Endereço de vídeo inválido ou não suportado."
+    if cookie_failed:
+        return ("Não foi possível ler a sessão do Brave; o download sem cookies também não "
+                "foi concluído. Verifique a disponibilidade pública da publicação.")
+    return "Não foi possível baixar o vídeo. Confirme o link e as permissões de acesso."
+
+
+def run_ytdlp_attempt(job_id, command):
+    process = subprocess.Popen(
+        command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+        bufsize=1, shell=False
+    )
+    with active_lock:
+        active[job_id] = process
+    output = []
+    file_path = None
+    save_root = str(downloads_directory().resolve()).casefold()
+    for line in process.stdout:
+        stripped = line.strip().strip('"')
+        if stripped.casefold().startswith(save_root):
+            file_path = stripped
+        output.append(line[-600:])
+        if len(output) > 35:
+            output.pop(0)
+        percentage = parse_percent(line)
+        if percentage is not None:
+            write_message({"id": job_id, "type": "progress", "progress": percentage,
+                           "message": "Baixando vídeo..."})
+        elif "[Merger]" in line or "[ffmpeg]" in line:
+            write_message({"id": job_id, "type": "progress", "progress": 99,
+                           "message": "Montando áudio e vídeo..."})
+    code = process.wait()
+    with active_lock:
+        if active.get(job_id) is process:
+            active.pop(job_id, None)
+    return code, file_path, classify_failure(output)
+
+
 def run_download(job_id, url, cookies_browser=None, source_referrer=None):
-    process = None
     try:
-        command = command_for_source(url, source_referrer) if source_referrer else command_for(url, cookies_browser)
-        process = subprocess.Popen(
-            command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
-            bufsize=1, shell=False
-        )
-        with active_lock:
-            active[job_id] = process
-        write_message({"id": job_id, "type": "started", "message": "Processando vídeo com yt-dlp/FFmpeg..."})
-        last = ""
-        auth_error = False
-        browser_cookie_error = False
-        file_path = None
-        save_root = str(downloads_directory().resolve()).casefold()
-        for line in process.stdout:
-            output_line = line.strip().strip('"')
-            if output_line.casefold().startswith(save_root):
-                file_path = output_line
-            normalized = line.casefold()
-            if any(mark in normalized for mark in ("login required", "log in", "login to", "cookies-to-yt-dlp", "login_required")):
-                auth_error = True
-            if any(mark in normalized for mark in ("failed to decrypt", "could not decrypt", "cookie database", "dpapi", "cookie extraction")):
-                browser_cookie_error = True
-            percent = parse_percent(line)
-            if percent is not None:
-                write_message({"id": job_id, "type": "progress", "progress": percent,
-                               "message": "Baixando e preparando as faixas..."})
-            elif "[Merger]" in line or "[ffmpeg]" in line:
-                write_message({"id": job_id, "type": "progress", "progress": 99,
-                               "message": "Montando áudio e vídeo em MP4..."})
-            elif "ERROR:" in line:
-                last = line.strip()[-350:]
-        code = process.wait()
-        if code == 0:
-            try:
-                if not file_path:
-                    raise RuntimeError("O downloader não informou um arquivo concluído para validação.")
-                verified = verify_saved_video(file_path)
-                write_message({"id": job_id, "type": "complete",
-                               "message": "Vídeo validado e salvo em " + str(verified.parent)})
-            except Exception as exc:
-                write_message({"id": job_id, "type": "error", "message": str(exc)[:350]})
-        elif code < 0:
-            write_message({"id": job_id, "type": "error", "message": "Processo encerrado."})
+        if source_referrer:
+            attempts = [(command_for_source(url, source_referrer), None)]
         else:
-            if browser_cookie_error and cookies_browser:
-                reason = ("Não foi possível ler a sessão do Brave. O navegador pode proteger cookies ou o perfil pode estar inacessível.")
-            elif auth_error and not cookies_browser:
-                reason = ("Esta publicação exige login. Para conteúdo autorizado, marque 'Usar sessão do Brave' e tente novamente. A leitura pode falhar por proteções do navegador.")
-            elif auth_error:
-                reason = ("Mesmo com a sessão do Brave, o Instagram não autorizou o download desta publicação.")
-            elif source_referrer and any(flag in last.casefold() for flag in
-                ("403", "forbidden", "blocked", "cloudflare", "access denied")):
-                reason = ("O servidor recusou a transferência fora do player original (HTTP 403/bloqueio). A extensão não contorna restrições do CDN.")
-            elif "unsupported url" in last.casefold():
-                reason = ("URL não suportada. Abra o Reel/post na sua página específica, não no feed.")
-            else:
-                reason = last[:250] if last else "O site não forneceu um vídeo baixável ou a URL expirou."
-            write_message({"id": job_id, "type": "error", "message": reason})
-    except Exception as exc:
-        write_message({"id": job_id, "type": "error", "message": str(exc)[:350]})
+            attempts = [(command_for(url, cookies_browser), cookies_browser)]
+        cookie_failed = False
+        for attempt_number in range(2):
+            if attempt_number >= len(attempts):
+                break
+            command, current_browser = attempts[attempt_number]
+            write_message({"id": job_id, "type": "started",
+                           "message": "Iniciando yt-dlp/FFmpeg..."})
+            returncode, file_path, error_code = run_ytdlp_attempt(job_id, command)
+            if returncode == 0:
+                try:
+                    if not file_path:
+                        raise RuntimeError("O assistente não recebeu o caminho do vídeo salvo.")
+                    verified = verify_saved_video(file_path)
+                    text = "Vídeo validado e salvo em " + str(verified.parent)
+                    if cookie_failed:
+                        text = "Download público concluído sem usar cookies. " + text
+                    write_message({"id": job_id, "type": "complete", "message": text})
+                except Exception as error:
+                    write_message({"id": job_id, "type": "error",
+                                   "code": "OUTPUT_INVALID", "message": str(error)[:300]})
+                return
+            if returncode < 0:
+                write_message({"id": job_id, "type": "error",
+                               "code": "CANCELED", "message": "Processo encerrado."})
+                return
+            if current_browser and error_code == "COOKIES_UNAVAILABLE" and not source_referrer:
+                cookie_failed = True
+                write_message({"id": job_id, "type": "warning", "code": error_code,
+                               "message": "Leitura da sessão indisponível. Tentando o vídeo público sem cookies..."})
+                attempts.append((command_for(url, None), None))
+                continue
+            message = failure_message(error_code, cookie_failed, current_browser)
+            write_message({"id": job_id, "type": "error", "code": error_code,
+                           "message": message})
+            return
+    except Exception as error:
+        write_message({"id": job_id, "type": "error", "code": "ASSISTANT_ERROR",
+                       "message": str(error)[:300]})
     finally:
         with active_lock:
             active.pop(job_id, None)
@@ -283,7 +341,7 @@ def main():
             write_message({"type": "error", "id": job_id, "message": "Download já iniciado."})
             continue
         cookies_browser = msg.get("cookiesBrowser")
-        if cookies_browser not in (None, "brave"):
+        if cookies_browser not in (None, "brave", "firefox"):
             write_message({"type": "error", "id": job_id, "message": "Opção de sessão inválida."})
             continue
         if cmd == "downloadSource" and cookies_browser is not None:
