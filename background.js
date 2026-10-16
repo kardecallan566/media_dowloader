@@ -1,6 +1,7 @@
 import { normalizedUrl, mediaType, mediaKey, shouldIgnoreNetwork, ranking, fileExtension } from './media-utils.js';
 import { validateProbe, parseRange } from './download-check.js';
 import { evaluateRangedPreview, RANGE_MAX_BYTES } from './range-downloader.js';
+import { canonicalMediaPageUrl } from './media-page.js';
 
 const STORE='mediaStore';
 let operations=Promise.resolve();
@@ -44,10 +45,16 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
    const type=(source==='page'&&input.type==='Player')?'Player':mediaType(url,input.contentType||'');
    if(!type || (source==='network'&&shouldIgnoreNetwork(url,type)))continue;
    const identity=mediaKey(url,type,input.playerId);
-   let found=indexed.get(identity)||list.find(i=>i.url===url);
+   let found=indexed.get(identity)||(type==='Player'?null:list.find(i=>i.type===type&&i.url===url));
    const visible=source==='page'&&input.visible===true;
    if(found){
     if(source==='page'&&type==='Player'){
+     const nextPage=canonicalMediaPageUrl(input.pageUrl);
+     if(found.pageUrl!==nextPage){
+      found.pageUrl=nextPage;
+      if(found.status==='error'){found.status='ready';found.message='';found.progress=0;}
+      changed=true;
+     }
      for(const field of ['label','thumbnail','engine','note','trackVideo','trackAudio','duration']){
       const value=input[field];
       if(value!==undefined&&value!==found[field]){
@@ -77,6 +84,7 @@ async function saveCandidates(tabId,rawItems,source,frameId=0,snapshot=false) {
    }
    const item={
     id:crypto.randomUUID(),key:identity,url,type,source,visible,frameId,
+    pageUrl:type==='Player'?canonicalMediaPageUrl(input.pageUrl):null,
     playerId:clean(input.playerId),engine:clean(input.engine),note:clean(input.note),
     trackVideo:Number(input.trackVideo)||0,trackAudio:Number(input.trackAudio)||0,
     sourceKind:clean(input.sourceKind),quality:clean(input.quality),
@@ -263,13 +271,26 @@ function supportedNativePage(url){
     .some(domain=>host===domain||host.endsWith('.'+domain));
  }catch{return false;}
 }
-async function startNativeDownload(tabId,id) {
+async function startNativeDownload(tabId,id,consent=false) {
  const item=await getItem(tabId,id);
  if(!item||item.type!=='Player')throw new Error('Selecione um player de vídeo reconhecido.');
  if(running(item.status))throw new Error('Já existe um download em andamento.');
+ if(!item.visible||item.source!=='page')throw new Error('O player não está mais visível nesta página. Atualize a detecção.');
  const tab=await chrome.tabs.get(tabId);
- const url=tab.url;
- if(!supportedNativePage(url))throw new Error('O assistente local está disponível para páginas do Instagram e YouTube.');
+ const page=canonicalMediaPageUrl(tab.url);
+ const url=canonicalMediaPageUrl(item.pageUrl)||page;
+ if(!url){
+  const message='Não identifiquei o link desta publicação. Abra o Reel/post em sua página própria (instagram.com/reel/... ou /p/...) e tente novamente.';
+  await patchMedia(tabId,id,{status:'error',message});
+  throw new Error(message);
+ }
+ if(!supportedNativePage(url))throw new Error('URL do vídeo não permitida para o assistente.');
+ if(tab.url){
+  const tabHost=new URL(tab.url).hostname.replace(/^www\./,'');
+  const targetHost=new URL(url).hostname.replace(/^www\./,'');
+  if(!(tabHost===targetHost||(tabHost==='youtu.be'&&targetHost==='youtube.com')))
+   throw new Error('O link detectado não pertence à página atual.');
+ }
  await patchMedia(tabId,id,{status:'native-connecting',progress:0,message:'Conectando ao assistente local...'});
  const port=chrome.runtime.connectNative('com.mediafinder.bridge');
  const key=id;
@@ -298,7 +319,7 @@ async function startNativeDownload(tabId,id) {
     ' Consulte native/README.md para instalar no Chrome ou Brave.'}).catch(console.warn);
   }
  });
- port.postMessage({cmd:'download',id,url});
+ port.postMessage({cmd:'download',id,url,cookiesBrowser:consent?'brave':null});
  return {ok:true,pending:true};
 }
 
@@ -351,7 +372,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='jobUpdate'){await patchMedia(msg.tabId,msg.patch.id,msg.patch);return {ok:true};}
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id);
-  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id);
+  if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser==='brave');
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
  })().then(respond,error=>respond({ok:false,error:error.message||String(error)}));
