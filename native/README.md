@@ -1,4 +1,10 @@
-# Assistente local · v1.11.0
+# Assistente local · v1.12.0
+
+Os downloads locais agora aceitam uma opção de qualidade: `best` (melhor disponível), `2160`, `1440`, `1080`, `720`, `480` ou `360`. Estes números são limites superiores de resolução aplicados às faixas existentes. A ferramenta não amplia artificialmente o vídeo nem escolhe qualidade superior quando a selecionada não está disponível.
+
+O assistente yt-dlp/FFmpeg baixa diretamente para o disco, sem usar o limite de memória da extensão. A tentativa continua sujeita a espaço disponível, disponibilidade da fonte e autorização do site. Como o executável nativo mudou, execute o instalador novamente após `git pull` para recompilá-lo e reinicie o navegador.
+
+---
 
 A versão 1.11.0 permite, de forma opcional, tentar baixar vídeos de Pins individuais por `yt-dlp` + `FFmpeg`. Aceita somente o caminho `/pin/<número>/` dos domínios oficiais do Pinterest. **Não aceita a página inicial, pesquisa nem o perfil como URL de vídeo**. Nenhuma sessão é lida por padrão; a extensão só usa cookies se o usuário escolher explicitamente essa opção.
 
