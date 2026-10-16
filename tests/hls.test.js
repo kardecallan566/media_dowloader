@@ -56,3 +56,33 @@ test('HLS segment access denied does not burn all retries',async()=>{
  await assert.rejects(job.requestPart({url:'https://cdn.example.org/part.ts',range:null}),/HTTP 403 no segmento/);
  assert.equal(count,1);
 });
+
+test('native browser fetch is called without binding it to StreamDownloader',async()=>{
+ const previous=globalThis.fetch;
+ const requests=[];
+ globalThis.fetch=function(url,options){
+  assert.equal(this,globalThis,'Browser fetch requires the window/global receiver');
+  requests.push(url);
+  if(url.endsWith('.m3u8'))return Promise.resolve({status:200,ok:true,text:async()=>
+   '#EXTM3U\\n#EXTINF:10,\\nsegment.ts\\n#EXT-X-ENDLIST'});
+  return Promise.resolve({status:200,ok:true,arrayBuffer:async()=>new Uint8Array([0x47,0,0,0]).buffer});
+ };
+ try{
+  const downloader=new StreamDownloader('https://media.example.test/vod.m3u8');
+  const manifest=await downloader.prepare();
+  assert.equal(manifest.segments.length,1);
+  const result=await downloader.download();
+  assert.equal(result.extension,'ts');
+  assert.equal(result.blob.size,4);
+  assert.equal(requests.length,2);
+ }finally{globalThis.fetch=previous;}
+});
+
+test('injected fetch is called as a plain function, not as downloader method',async()=>{
+ let thisValue;
+ const fetcher=function(url){thisValue=this;return Promise.resolve({status:200,ok:true,text:async()=>
+  '#EXTM3U\\n#EXTINF:2,\\nseg.ts\\n#EXT-X-ENDLIST'});};
+ const downloader=new StreamDownloader('https://example.org/video.m3u8',{fetcher});
+ await downloader.prepare();
+ assert.equal(thisValue,undefined);
+});
