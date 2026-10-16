@@ -476,16 +476,17 @@ chrome.runtime.onInstalled.addListener(details=>{
    String(details.previousVersion||'').startsWith('1.2.')){
   // Remove obsolete detector entries from older releases.
   chrome.storage.local.remove(STORE).catch(console.warn);
- }else if(details.previousVersion==='1.10.0'){
-  // Clear the stale HLS fetch receiver error after upgrading; keep other media states.
+ }else if(['1.10.0','1.10.1'].includes(details.previousVersion)){
+  // Reset stale HLS browser errors when a new native-first route is introduced.
   serial(async()=>{
    const {mediaStore={}}=await chrome.storage.local.get(STORE);
    let changed=false;
    for(const entries of Object.values(mediaStore)){
     for(const item of entries){
-     if(item.type==='HLS'&&item.status==='error'&&/Illegal invocation/i.test(item.message||'')){
+     if(item.type==='HLS'&&item.status==='error'&&
+        /Illegal invocation|HTTP 40[13] na playlist/i.test(item.message||'')){
       item.status='ready';item.progress=0;item.analysis=null;
-      item.message='Erro de fetch corrigido na v1.10.1. Tente baixar novamente.';
+      item.message='Método de download atualizado. Use o botão principal para tentar o assistente local quando disponível.';
       changed=true;
      }
     }
