@@ -23,7 +23,7 @@ active = {}
 active_lock = threading.Lock()
 cancelled_jobs = set()
 IDLE_TIMEOUT_SECONDS = 120
-MAX_JOB_SECONDS = 45 * 60
+MAX_JOB_SECONDS = 24 * 60 * 60
 HEARTBEAT_SECONDS = 8
 
 
@@ -96,11 +96,21 @@ def allowed_source(url, referrer):
         return False
 
 
-def command_for_source(url, referrer):
+def quality_format(quality):
+    allowed = {"best", "2160", "1440", "1080", "720", "480", "360"}
+    if quality not in allowed:
+        raise RuntimeError("Qualidade inválida.")
+    if quality == "best":
+        return "bv*+ba/b"
+    return "bv*[height<=" + quality + "]+ba/b[height<=" + quality + "]"
+
+
+def command_for_source(url, referrer, quality="best"):
     if not allowed_source(url, referrer):
         raise RuntimeError("Fonte não autorizada para download contextual. Confira a página de origem.")
     if source_expired(url):
         raise RuntimeError("Link temporário HLS expirou. Atualize a página e capture a playlist novamente.")
+    quality_format(quality)
     tool = shutil.which("yt-dlp")
     if not tool:
         raise RuntimeError("yt-dlp não instalado.")
@@ -112,6 +122,8 @@ def command_for_source(url, referrer):
                  "--output", "%(title).90B__%(id)s.%(ext)s",
                  "--print", "after_move:filepath"]
     if urlsplit(url).path.lower().endswith(".m3u8"):
+        if quality != "best":
+            arguments.extend(["--format", quality_format(quality)])
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             raise RuntimeError("FFmpeg é necessário para processar o HLS.")
@@ -148,11 +160,12 @@ def downloads_directory():
     return folder
 
 
-def command_for(url, cookies_browser=None):
+def command_for(url, cookies_browser=None, quality="best"):
     if not allowed_url(url):
         raise RuntimeError("Abra uma publicação ou Reel específico, não a página inicial.")
     if cookies_browser not in (None, "brave", "firefox"):
         raise RuntimeError("Navegador de sessão não permitido.")
+    requested_format=quality_format(quality)
     ytdlp = shutil.which("yt-dlp")
     ffmpeg = shutil.which("ffmpeg")
     if not ytdlp:
@@ -165,7 +178,7 @@ def command_for(url, cookies_browser=None):
         "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2",
         "--restrict-filenames",
         "--newline", "--merge-output-format", "mp4",
-        "--format", "bv+ba/b",
+        "--format", requested_format,
         "--ffmpeg-location", str(Path(ffmpeg).parent),
         "--paths", str(directory),
         "--output", "%(title).100B__%(id)s.%(ext)s",
@@ -366,12 +379,12 @@ def run_ytdlp_attempt(job_id, command):
     return result_code, file_path, failure or classify_failure(output) 
 
 
-def run_download(job_id, url, cookies_browser=None, source_referrer=None):
+def run_download(job_id, url, cookies_browser=None, source_referrer=None, quality="best"):
     try:
         if source_referrer:
-            attempts = [(command_for_source(url, source_referrer), None)]
+            attempts = [(command_for_source(url, source_referrer, quality), None)]
         else:
-            attempts = [(command_for(url, cookies_browser), cookies_browser)]
+            attempts = [(command_for(url, cookies_browser, quality), cookies_browser)]
         cookie_failed = False
         for attempt_number in range(2):
             if attempt_number >= len(attempts):
@@ -405,7 +418,7 @@ def run_download(job_id, url, cookies_browser=None, source_referrer=None):
                 cookie_failed = True
                 write_message({"id": job_id, "type": "warning", "code": error_code,
                                "message": "Leitura da sessão indisponível. Tentando o vídeo público sem cookies..."})
-                attempts.append((command_for(url, None), None))
+                attempts.append((command_for(url, None, quality), None))
                 continue
             message = failure_message(error_code, cookie_failed, current_browser)
             write_message({"id": job_id, "type": "error", "code": error_code,
@@ -456,6 +469,12 @@ def main():
         if already:
             write_message({"type": "error", "id": job_id, "message": "Download já iniciado."})
             continue
+        quality = msg.get("quality", "best")
+        try:
+            quality_format(quality)
+        except RuntimeError:
+            write_message({"type":"error","id":job_id,"message":"Qualidade solicitada inválida."})
+            continue
         cookies_browser = msg.get("cookiesBrowser")
         if cookies_browser not in (None, "brave", "firefox"):
             write_message({"type": "error", "id": job_id, "message": "Opção de sessão inválida."})
@@ -464,7 +483,7 @@ def main():
             write_message({"type": "error", "id": job_id, "message": "Cookies não são usados em downloads de fontes de terceiros."})
             continue
         threading.Thread(target=run_download,
-            args=(job_id, msg["url"], cookies_browser, referrer if cmd == "downloadSource" else None),
+            args=(job_id, msg["url"], cookies_browser, referrer if cmd == "downloadSource" else None, quality),
             daemon=True).start()
 
 
