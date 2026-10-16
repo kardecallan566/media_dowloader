@@ -367,7 +367,7 @@ async function startNativeSource(tabId,id){
   if(!state.finished)patchMedia(tabId,id,{status:'error',
     message:'Assistente local indisponível: '+(chrome.runtime.lastError?.message||'conexão encerrada')}).catch(console.warn);
  });
- port.postMessage({cmd:'downloadSource',id,url:item.url,referrer:page.href});
+ port.postMessage({cmd:'downloadSource',id,url:item.url,referrer:page.origin+page.pathname});
  return {ok:true,pending:true};
 }
 
