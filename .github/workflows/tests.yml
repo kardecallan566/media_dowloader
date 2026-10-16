@@ -12,3 +12,19 @@ jobs:
           node-version: '22'
       - run: npm test
       - run: python3 -m unittest discover -s native/tests -v
+  native-windows-install:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify PowerShell installer builds and registers host
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\native\install.ps1 -ExtensionId aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          if ($LASTEXITCODE -ne 0) { throw "Installer failed" }
+          if (-not (Test-Path .\native\dist\mediafinder_native.exe)) { throw "Native host executable missing" }
+          $manifest = Get-Content .\native\com.mediafinder.bridge.json -Raw | ConvertFrom-Json
+          if ($manifest.allowed_origins[0] -ne 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/') { throw "Extension origin mismatch" }
+          if (-not (Test-Path $manifest.path)) { throw "Native host manifest path invalid" }
