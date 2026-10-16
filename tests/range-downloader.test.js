@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateRangedPreview, downloadRanges } from '../range-downloader.js';
+import { evaluateRangedPreview, downloadRanges, downloadRangesToWriter } from '../range-downloader.js';
 
 const makeBytes=(size)=>{
  const data=new Uint8Array(size);
@@ -55,4 +55,24 @@ test('fail closed when range totals change across requests',async()=>{
  };
  await assert.rejects(downloadRanges('https://media.example/video.mp4',110000,
   {fetcher:fakeFetch,chunkSize:16384}),/intervalos incompatível/);
+});
+
+test('large progressive file can be streamed in ranges without allocating its total size',async()=>{
+ const total=500*1024*1024;
+ const headers=new Headers({'content-range':'bytes 0-999/'+total,'content-type':'video/mp4'});
+ assert.equal(evaluateRangedPreview(206,headers,makeBytes(1000),'Video','mp4').canDownload,true);
+ let written=0,fetches=0;
+ const fetcher=async(url,options)=>{
+  fetches++;
+  const match=/bytes=(\d+)-(\d+)/.exec(options.headers.Range);
+  const from=Number(match[1]),to=Number(match[2]);
+  return {status:206,
+   headers:new Headers({'content-range':'bytes '+from+'-'+to+'/'+total}),
+   arrayBuffer:async()=>new ArrayBuffer(to-from+1)};
+ };
+ const result=await downloadRangesToWriter('https://video.example/movie.mp4',total,
+  {write:async chunk=>{written+=chunk.byteLength;}},{fetcher,chunkSize:4*1024*1024});
+ assert.equal(result.bytes,total);
+ assert.equal(written,total);
+ assert.equal(fetches,125);
 });
