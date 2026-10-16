@@ -306,6 +306,7 @@ def run_ytdlp_attempt(job_id, command):
     started_at = last_activity = last_heartbeat = time.monotonic()
     ending = False
     failure = None
+    last_percent = 0
     while not ending:
         now = time.monotonic()
         with active_lock:
@@ -321,7 +322,7 @@ def run_ytdlp_attempt(job_id, command):
             break
         if now - last_heartbeat >= HEARTBEAT_SECONDS:
             last_heartbeat = now
-            write_message({"id": job_id, "type": "progress", "progress": 0,
+            write_message({"id": job_id, "type": "progress", "progress": last_percent,
                            "message": "Aguardando resposta da fonte... "
                                       + str(int(now - last_activity)) + " s sem progresso"})
         try:
@@ -341,6 +342,7 @@ def run_ytdlp_attempt(job_id, command):
             output.pop(0)
         percentage = parse_percent(line)
         if percentage is not None:
+            last_percent = percentage
             write_message({"id": job_id, "type": "progress", "progress": percentage,
                            "message": "Baixando vídeo..."})
         elif "[Merger]" in line or "[ffmpeg]" in line:
@@ -464,4 +466,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        with active_lock:
+            processes=list(active.values())
+        for process in processes:
+            try:
+                stop_process(process)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
