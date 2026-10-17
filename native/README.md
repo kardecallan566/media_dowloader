@@ -1,4 +1,14 @@
-# Assistente local · v1.13.0
+# Assistente local · v1.14.0
+
+## Playlist inteira do YouTube — somente áudio
+
+O Native Messaging Host agora aceita `downloadPlaylistAudio` com URL canônica `https://www.youtube.com/playlist?list=...`, perfil de áudio permitido e sessão opcional. O yt-dlp recebe `--yes-playlist`, `--ignore-errors`, `--continue`, `--download-archive` e os parâmetros de extração já utilizados para áudios individuais.
+
+Cada playlist e perfil tem uma pasta `Downloads/MediaFinder/Playlists/<id>/<perfil>/`, com histórico persistente próprio, para baixar apenas as faixas pendentes na próxima execução. A saída é verificada como áudio com FFprobe após a conversão. Não são usados argumentos arbitrários vindos de websites; os links são validados novamente no assistente.
+
+Ao atualizar, rode **novamente** `native/install.ps1` com o ID da extensão para recompilar o executável. O Chrome/Brave precisa estar aberto durante o lote. O cancelamento encerra o processo e uma nova tentativa utiliza o histórico dos itens concluídos.
+
+---
 
 ## Exportação de áudio dos vídeos
 
