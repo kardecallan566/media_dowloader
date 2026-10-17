@@ -116,7 +116,7 @@ async function cancelPlaylistAudio(){
  Object.assign(state.job,{status:'canceling',message:'Cancelando a playlist...'});
  await savePlaylistJob({...state.job});
  try{state.port.postMessage({cmd:'cancel',id:state.id});}
- catch(error)throw new Error(error.message||'Não foi possível cancelar.');
+ catch(error){throw new Error(error.message||'Não foi possível cancelar.');}
  return {ok:true};
 }
 
