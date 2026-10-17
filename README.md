@@ -1,4 +1,26 @@
-# Media Finder Pro · v1.12.0
+# Media Finder Pro · v1.13.0
+
+## Novo: baixar somente o áudio dos vídeos
+
+Agora é possível **extrair apenas o som de vídeos acessíveis**, sem salvar primeiro o arquivo de vídeo. A extensão usa o assistente local opcional **yt-dlp + FFmpeg**, já utilizado nos downloads anteriores.
+
+- A aba **Áudios** passou a incluir vídeos detectados que oferecem a extração pelo assistente (além dos arquivos de áudio independentes já encontrados na página).
+- Também foi adicionado **♫ Baixar apenas áudio** aos cards de vídeo compatíveis.
+- **Formatos:** MP3 128 kbps, MP3 192 kbps (padrão), MP3 320 kbps, M4A e Opus. As opções MP3 controlam a taxa de conversão, mas não melhoram o som além da qualidade do original.
+- **Instagram, YouTube e Pinterest:** use o link individual da publicação/vídeo, detectado automaticamente quando possível ou informado manualmente, para solicitar áudio sem baixar o vídeo como saída final. Sessões do Brave/Firefox continuam opcionais e requerem escolha explícita.
+- **Streams MP4/HLS dos pares de site e CDN previamente reconhecidos:** permitem extração via assistente local, com a referência da página onde a mídia foi reproduzida. Uma playlist expirada ou protegida não pode ser baixada sem autorização.
+- **Validação final:** o assistente confere com FFprobe se o resultado realmente contém áudio e se não inclui faixa de vídeo, antes de exibir sucesso.
+- **Arquivos:** são salvos em `Downloads/MediaFinder`. O botão Cancelar interrompe o processo quando solicitado.
+
+**Limitação:** o navegador não possui uma função nativa universal de extrair MP3 de qualquer vídeo detectado. O fluxo de extração exige uma URL suportada pelo assistente, fonte acessível e FFmpeg funcional. A aba Áudios mantém o download direto de arquivos MP3/M4A/etc. que o site já disponibiliza. Não foi incluído contorno de DRM ou autenticação.
+
+### Atualização
+
+Execute `git pull origin main` no diretório do projeto. Como `native/host.py` mudou, **recompile o assistente** usando `native/install.ps1` com o mesmo ID da extensão; depois feche o Brave, abra novamente e recarregue a extensão em `brave://extensions`. Confirme **v1.13.0** no rodapé.
+
+A suíte automatizada testa presets, argumentos seguros do yt-dlp/FFmpeg, links autorizados, fallback de autenticação e verificação dos arquivos de áudio. A compatibilidade real depende da fonte e deve ser conferida no navegador.
+
+---
 
 ## Downloads grandes sem limite artificial de tamanho
 
