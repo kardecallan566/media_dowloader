@@ -12,6 +12,12 @@ const clean=s=>String(s||'').replace(/[\u0000-\u001f]/g,' ').trim().slice(0,160)
 const running=s=>['checking','running','downloading','saving','native-connecting','native-running'].includes(s);
 const nativePorts=new Map();
 const offscreenDownloadIds=new Set();
+const AUDIO_FORMATS=new Set(['mp3-128','mp3-192','mp3-320','m4a','opus']);
+function validateAudioProfile(profile){
+ if(!AUDIO_FORMATS.has(profile))throw new Error('Formato de áudio inválido.');
+ return profile;
+}
+
 
 async function updateBadge(tabId,list) {
  if(!validTab(tabId))return;
@@ -298,7 +304,11 @@ function supportedNativePage(url){
     .some(domain=>host===domain||host.endsWith('.'+domain));
  }catch{return false;}
 }
-async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null,quality='best') {
+async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null,quality='best',audioProfile=null) {
+ if(audioProfile!==null){
+  validateAudioProfile(audioProfile);
+  if(quality!=='best')throw new Error('Resolução de vídeo não se aplica à extração de áudio.');
+ }
  if(!['best','2160','1440','1080','720','480','360'].includes(quality))
   throw new Error('Qualidade inválida.');
  if(![null,'brave','firefox'].includes(cookiesBrowser))throw new Error('Navegador de sessão inválido.');
@@ -336,7 +346,7 @@ async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null,q
   if(message.id!==id)return;
   if(message.type==='started'||message.type==='progress'){
    patchMedia(tabId,id,{status:'native-running',progress:message.progress??0,
-    message:message.message||'Baixando com processamento local...'}).catch(console.warn);
+    message:message.message||'Baixando mídia com processamento local...'}).catch(console.warn);
   }else if(message.type==='complete'){
    state.finished=true;
    patchMedia(tabId,id,{status:'done',progress:100,message:message.message||'Arquivo salvo pelo assistente local.'})
@@ -355,11 +365,15 @@ async function startNativeDownload(tabId,id,cookiesBrowser=null,manualUrl=null,q
     ' Consulte native/README.md para instalar no Chrome ou Brave.'}).catch(console.warn);
   }
  });
- port.postMessage({cmd:'download',id,url,cookiesBrowser,quality});
+ port.postMessage({cmd:'download',id,url,cookiesBrowser,quality,audioProfile});
  return {ok:true,pending:true};
 }
 
-async function startNativeSource(tabId,id,quality='best'){
+async function startNativeSource(tabId,id,quality='best',audioProfile=null){
+ if(audioProfile!==null){
+  validateAudioProfile(audioProfile);
+  if(quality!=='best')throw new Error('Resolução de vídeo não se aplica à extração de áudio.');
+ }
  if(!['best','2160','1440','1080','720','480','360'].includes(quality))
   throw new Error('Qualidade inválida.');
  const item=await getItem(tabId,id);
@@ -398,7 +412,7 @@ async function startNativeSource(tabId,id,quality='best'){
     message:'Assistente local indisponível: '+(chrome.runtime.lastError?.message||'conexão encerrada')}).catch(console.warn);
  });
  port.postMessage({cmd:'downloadSource',id,url:item.url,referrer:page.origin+page.pathname,
-  quality:item.type==='HLS'?quality:'best'});
+  quality:item.type==='HLS'?quality:'best',audioProfile});
  return {ok:true,pending:true};
 }
 
@@ -485,7 +499,11 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id,msg.selectedUrl||null);
   if(msg.cmd==='getHlsQualities')return getHlsQualities(msg.tabId,msg.id);
   if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,msg.manualUrl||null,msg.quality||'best');
+  if(msg.cmd==='startNativeAudio')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,
+   msg.manualUrl||null,'best',validateAudioProfile(msg.audioProfile));
   if(msg.cmd==='startNativeSource')return startNativeSource(msg.tabId,msg.id,msg.quality||'best');
+  if(msg.cmd==='startNativeSourceAudio')return startNativeSource(msg.tabId,msg.id,'best',
+   validateAudioProfile(msg.audioProfile));
   if(msg.cmd==='cancelDownload')return cancelDownload(msg.tabId,msg.id);
   return {ok:false,error:'Comando desconhecido'};
  })().then(respond,error=>respond({ok:false,error:error.message||String(error)}));
