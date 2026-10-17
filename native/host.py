@@ -428,10 +428,13 @@ def run_ytdlp_attempt(job_id, command):
         if percentage is not None:
             last_percent = percentage
             write_message({"id": job_id, "type": "progress", "progress": percentage,
-                           "message": "Baixando vídeo..."})
+                           "message": "Baixando mídia..."})
+        elif "[ExtractAudio]" in line:
+            write_message({"id": job_id, "type": "progress", "progress": 99,
+                           "message": "Convertendo a faixa de áudio com FFmpeg..."})
         elif "[Merger]" in line or "[ffmpeg]" in line:
             write_message({"id": job_id, "type": "progress", "progress": 99,
-                           "message": "Montando áudio e vídeo..."})
+                           "message": "Processando mídia com FFmpeg..."})
     if failure:
         result_code = -15 if failure == "CANCELED" else 124
     else:
