@@ -174,7 +174,7 @@ class NativeHostTests(unittest.TestCase):
                 return (1, None, "COOKIES_UNAVAILABLE")
             return (0, "/tmp/MediaFinder/test.mp4", "DOWNLOAD_FAILED")
         with patch.object(host, "command_for",
-                          side_effect=lambda url, browser=None, quality="best": ["yt-dlp"] +
+                          side_effect=lambda url, browser=None, quality="best", audio_profile=None: ["yt-dlp"] +
                           (["--cookies-from-browser", browser] if browser else []) + [url]):
             with patch.object(host, "run_ytdlp_attempt", side_effect=fake_attempt):
                 with patch.object(host, "verify_saved_video",
@@ -192,7 +192,7 @@ class NativeHostTests(unittest.TestCase):
         url = "https://www.instagram.com/reel/ABC123/"
         messages = []
         with patch.object(host, "command_for",
-                          side_effect=lambda url, browser=None, quality="best": ["yt-dlp", browser or "public"]):
+                          side_effect=lambda url, browser=None, quality="best", audio_profile=None: ["yt-dlp", browser or "public"]):
             with patch.object(host, "run_ytdlp_attempt",
                               side_effect=[(1, None, "COOKIES_UNAVAILABLE"),
                                            (1, None, "AUTH_REQUIRED")]):
@@ -228,6 +228,85 @@ class NativeHostTests(unittest.TestCase):
         self.assertIn("height<=720", page_cmd[page_cmd.index("--format")+1])
         self.assertIn("height<=480", source_cmd[source_cmd.index("--format")+1])
         self.assertEqual(page_cmd[-2], "--")
+
+    def test_audio_format_profiles_are_restricted(self):
+        self.assertEqual(host.audio_options("mp3-128"), ("mp3", "128K"))
+        self.assertEqual(host.audio_options("mp3-192"), ("mp3", "192K"))
+        self.assertEqual(host.audio_options("mp3-320"), ("mp3", "320K"))
+        self.assertEqual(host.audio_options("m4a"), ("m4a", "0"))
+        self.assertEqual(host.audio_options("opus"), ("opus", "0"))
+        for invalid in ("wav", "mp3", "mp3;rm -rf /", "", None, 320):
+            with self.assertRaisesRegex(RuntimeError, "áudio inválido"):
+                host.audio_options(invalid)
+
+    def test_page_audio_mp3_command_uses_best_audio_and_ffmpeg(self):
+        url = "https://www.instagram.com/reel/ABC123/"
+        with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/" + name):
+            with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
+                args = host.command_for(url, None, "best", "mp3-192")
+        self.assertEqual(args[args.index("--format") + 1], "bestaudio/best")
+        self.assertEqual(args[args.index("--audio-format") + 1], "mp3")
+        self.assertEqual(args[args.index("--audio-quality") + 1], "192K")
+        self.assertIn("--extract-audio", args)
+        self.assertNotIn("--merge-output-format", args)
+        self.assertNotIn("--cookies-from-browser", args)
+        self.assertEqual(args[-2:], ["--", url])
+
+    def test_contextual_hls_audio_uses_ffmpeg_and_known_referrer_only(self):
+        url = "https://doce-de-leite-vegano.b-cdn.net/stream/index.m3u8?expires=1893456000"
+        referrer = "https://topanimes.net/assistir/episodio/"
+        with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/" + name):
+            with patch.object(host, "downloads_directory", return_value=Path("/tmp/mediafinder")):
+                args = host.command_for_source(url, referrer, "best", "m4a")
+        self.assertIn("--extract-audio", args)
+        self.assertEqual(args[args.index("--audio-format") + 1], "m4a")
+        self.assertEqual(args[args.index("--referer") + 1], referrer)
+        self.assertNotIn("--remux-video", args)
+        self.assertNotIn("--cookies-from-browser", args)
+        with self.assertRaisesRegex(RuntimeError, "Fonte não autorizada"):
+            host.command_for_source(url, "https://example.org/", "best", "m4a")
+
+    def test_ffprobe_validates_exported_audio_and_rejects_video(self):
+        with TemporaryDirectory() as root:
+            folder = Path(root)
+            audio = folder / "track.mp3"
+            audio.write_bytes(b"0" * 4096)
+            with patch.object(host, "downloads_directory", return_value=folder):
+                with patch.object(host.shutil, "which", return_value="/usr/bin/ffprobe"):
+                    with patch.object(host.subprocess, "run", return_value=SimpleNamespace(
+                        returncode=0,
+                        stdout='{"streams":[{"codec_type":"audio"}],"format":{"duration":"60"}}',
+                        stderr=""
+                    )):
+                        self.assertEqual(host.verify_saved_audio(str(audio)), audio.resolve())
+                    with patch.object(host.subprocess, "run", return_value=SimpleNamespace(
+                        returncode=0,
+                        stdout='{"streams":[{"codec_type":"video"}],"format":{"duration":"60"}}',
+                        stderr=""
+                    )):
+                        with self.assertRaisesRegex(RuntimeError, "faixa de áudio"):
+                            host.verify_saved_audio(str(audio))
+                    with patch.object(host.subprocess, "run", return_value=SimpleNamespace(
+                        returncode=0,
+                        stdout='{"streams":[{"codec_type":"audio"},{"codec_type":"video"}],"format":{"duration":"60"}}',
+                        stderr=""
+                    )):
+                        with self.assertRaisesRegex(RuntimeError, "contém vídeo"):
+                            host.verify_saved_audio(str(audio))
+
+    def test_native_audio_download_reports_audio_and_uses_audio_verifier(self):
+        messages = []
+        url = "https://www.pinterest.com/pin/123456789012345/"
+        with patch.object(host, "command_for", return_value=["yt-dlp", url]):
+            with patch.object(host, "run_ytdlp_attempt", return_value=(0, "/tmp/audio.mp3", None)):
+                with patch.object(host, "verify_saved_audio", return_value=Path("/tmp/audio.mp3")) as audio_check:
+                    with patch.object(host, "verify_saved_video") as video_check:
+                        with patch.object(host, "write_message", side_effect=messages.append):
+                            host.run_download("audio-test", url, None, None, "best", "mp3-320")
+        audio_check.assert_called_once_with("/tmp/audio.mp3")
+        video_check.assert_not_called()
+        self.assertEqual(messages[-1]["type"], "complete")
+        self.assertIn("Áudio validado", messages[-1]["message"])
 
     def test_missing_ffmpeg_reports_clear_error(self):
         with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None):
