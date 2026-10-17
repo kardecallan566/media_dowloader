@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 ALLOWED_HOSTS = ("instagram.com", "youtube.com", "youtube-nocookie.com", "youtu.be", "pinterest.com")
 MAX_MESSAGE = 64 * 1024
@@ -160,6 +160,76 @@ def command_for_source(url, referrer, quality="best", audio_profile=None):
                           "--remux-video", "mp4"])
     arguments.extend(["--", url])
     return arguments
+
+
+
+def playlist_identifier(raw):
+    """Return a strictly validated playlist ID or None (no video-only URLs)."""
+    if not isinstance(raw, str) or len(raw) > 2048:
+        return None
+    try:
+        url = urlsplit(raw)
+        if url.scheme != "https" or url.username or url.password or url.port:
+            return None
+        if (url.hostname or "").lower() not in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+            return None
+        if url.path != "/playlist" or url.fragment:
+            return None
+        params = parse_qs(url.query, keep_blank_values=True)
+        if set(params) != {"list"} or len(params["list"]) != 1:
+            return None
+        value = params["list"][0]
+        return value if re.fullmatch(r"[A-Za-z0-9_-]{10,64}", value) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def playlist_download_directory(playlist_id, profile):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{10,64}", playlist_id):
+        raise RuntimeError("Identificador de playlist inválido.")
+    audio_options(profile)
+    folder = downloads_directory() / "Playlists" / playlist_id / profile
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def command_for_playlist(url, audio_profile, cookies_browser=None):
+    playlist_id = playlist_identifier(url)
+    if not playlist_id:
+        raise RuntimeError("Cole o link de uma playlist do YouTube, não um vídeo isolado.")
+    if cookies_browser not in (None, "brave", "firefox"):
+        raise RuntimeError("Navegador de sessão inválido.")
+    audio_options(audio_profile)
+    ytdlp = shutil.which("yt-dlp")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ytdlp or not ffmpeg:
+        raise RuntimeError("Instale yt-dlp e FFmpeg para baixar playlists.")
+    folder = playlist_download_directory(playlist_id, audio_profile)
+    # Archive per profile and private directory: reruns skip complete tracks;
+    # a different audio profile is never skipped by an earlier profile.
+    archive = folder / ".completed-ids.txt"
+    args = [ytdlp, "--ignore-config", "--yes-playlist", "--ignore-errors",
+            "--continue", "--no-overwrites", "--socket-timeout", "25",
+            "--retries", "3", "--fragment-retries", "3", "--newline",
+            "--restrict-filenames", "--ffmpeg-location", str(Path(ffmpeg).parent),
+            "--paths", str(folder), "--download-archive", str(archive),
+            "--output", "%(playlist_index|000)s_%(title).90B__%(id)s.%(ext)s",
+            "--print", "before_dl:MFP_ITEM:%(playlist_index|0)s:%(playlist_count|0)s:%(title).80B",
+            "--print", "after_move:MFP_FILE:%(filepath)s"]
+    args.extend(audio_arguments(audio_profile))
+    if cookies_browser:
+        args.extend(["--cookies-from-browser", cookies_browser])
+    args.extend(["--", "https://www.youtube.com/playlist?list=" + playlist_id])
+    return args
+
+
+def archive_entry_count(folder):
+    archive = folder / ".completed-ids.txt"
+    try:
+        with archive.open("r", encoding="utf-8", errors="replace") as stream:
+            return sum(1 for line in stream if line.strip())
+    except FileNotFoundError:
+        return 0
 
 
 def write_message(payload):
@@ -364,7 +434,7 @@ def watchdog_reason(idle_seconds, elapsed_seconds,
     return None
 
 
-def run_ytdlp_attempt(job_id, command):
+def run_ytdlp_attempt(job_id, command, on_line=None):
     process = subprocess.Popen(
         command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
@@ -422,6 +492,12 @@ def run_ytdlp_attempt(job_id, command):
         if stripped.casefold().startswith(save_root):
             file_path = stripped
         output.append(line[-600:])
+        if on_line is not None:
+            try:
+                on_line(stripped)
+            except Exception:
+                # Do not break child-process draining on a UI/progress callback.
+                pass
         if len(output) > 35:
             output.pop(0)
         percentage = parse_percent(line)
@@ -506,6 +582,93 @@ def run_download(job_id, url, cookies_browser=None, source_referrer=None, qualit
             active.pop(job_id, None)
 
 
+
+def run_playlist_download(job_id, url, audio_profile, cookies_browser=None):
+    """Download and verify each playlist audio track, retaining resume archive."""
+    playlist_id = playlist_identifier(url)
+    if not playlist_id:
+        write_message({"id": job_id, "type": "error", "message": "Link de playlist inválido."})
+        return
+    try:
+        folder = playlist_download_directory(playlist_id, audio_profile)
+        before = archive_entry_count(folder)
+        command = command_for_playlist(url, audio_profile, cookies_browser)
+        state = {"current": 0, "total": 0, "saved": 0, "failed": 0, "title": ""}
+        def on_line(line):
+            if line.startswith("MFP_ITEM:"):
+                parts = line.split(":", 3)
+                if len(parts) == 4:
+                    current, total = parts[1:3]
+                    if current.isdigit():
+                        state["current"] = int(current)
+                    if total.isdigit():
+                        state["total"] = int(total)
+                    state["title"] = parts[3][:80]
+                    write_message({"id": job_id, "type": "progress",
+                                   "current": state["current"], "total": state["total"],
+                                   "saved": state["saved"], "failed": state["failed"],
+                                   "message": "Processando faixa: " + state["title"]})
+            elif line.startswith("MFP_FILE:"):
+                path = line[len("MFP_FILE:"):].strip()
+                try:
+                    candidate = verify_saved_audio(path)
+                    if folder.resolve() not in candidate.parents:
+                        raise RuntimeError("Faixa salva fora da pasta da playlist.")
+                    state["saved"] += 1
+                    message = "Áudio validado: " + candidate.name[:90]
+                except Exception:
+                    state["failed"] += 1
+                    message = "Uma faixa não passou na verificação de áudio."
+                write_message({"id": job_id, "type": "progress",
+                               "current": state["current"], "total": state["total"],
+                               "saved": state["saved"], "failed": state["failed"],
+                               "message": message})
+            elif "ERROR:" in line:
+                state["failed"] += 1
+        try:
+            write_message({"id": job_id, "type": "started",
+                           "message": "Iniciando playlist de áudio..."})
+            code, _path, reason = run_ytdlp_attempt(job_id, command, on_line=on_line)
+        except Exception as error:
+            if cookies_browser and ("cookie" in str(error).lower()):
+                raise RuntimeError("Não foi possível acessar os cookies escolhidos. Tente sem sessão.") from error
+            raise
+        if code < 0 or reason == "CANCELED":
+            write_message({"id": job_id, "type": "error", "code": "CANCELED",
+                           "message": "Playlist cancelada. Inicie novamente para retomar."})
+            return
+        if code == 124 or reason == "TIMEOUT":
+            write_message({"id": job_id, "type": "error", "code": "SOURCE_TIMEOUT",
+                           "message": "A playlist parou de responder. Inicie novamente para retomar."})
+            return
+        if code != 0 and reason == "COOKIES_UNAVAILABLE":
+            write_message({"id": job_id, "type": "error", "code": reason,
+                           "message": "A sessão do navegador não pôde ser lida. Escolha Sem sessão e tente novamente."})
+            return
+        if code != 0 and state["saved"] == 0:
+            write_message({"id": job_id, "type": "error", "code": reason,
+                           "message": failure_message(reason)})
+            return
+        after = archive_entry_count(folder)
+        if state["saved"] == 0 and after == 0:
+            write_message({"id": job_id, "type": "error", "code": "NO_AUDIO",
+                           "message": "Nenhuma faixa acessível foi baixada. Verifique a playlist e a sessão."})
+            return
+        was_partial = state["failed"] > 0 or code != 0
+        write_message({"id": job_id, "type": "complete",
+                       "partial": was_partial, "saved": state["saved"],
+                       "previous": min(before, after), "failed": state["failed"],
+                       "total": state["total"], "playlistId": playlist_id,
+                       "message": ("Playlist com falhas; inicie novamente para tentar as restantes."
+                                   if was_partial else "Playlist processada. Áudios salvos em Downloads/MediaFinder/Playlists.")})
+    except Exception as error:
+        write_message({"id": job_id, "type": "error", "code": "PLAYLIST_ERROR",
+                       "message": str(error)[:250]})
+    finally:
+        with active_lock:
+            active.pop(job_id, None)
+
+
 def main():
     while True:
         try:
@@ -527,6 +690,27 @@ def main():
             continue
         cmd = msg.get("cmd")
         referrer = msg.get("referrer")
+        if cmd == "downloadPlaylistAudio":
+            if not playlist_identifier(msg.get("url")):
+                write_message({"type": "error", "id": job_id, "message": "URL de playlist do YouTube inválida."})
+                continue
+            audio_profile = msg.get("audioProfile")
+            cookies_browser = msg.get("cookiesBrowser")
+            try:
+                audio_options(audio_profile)
+                if cookies_browser not in (None, "brave", "firefox"):
+                    raise RuntimeError("Sessão de navegador inválida.")
+            except RuntimeError as error:
+                write_message({"type": "error", "id": job_id, "message": str(error)})
+                continue
+            with active_lock:
+                already = job_id in active
+            if already:
+                write_message({"type": "error", "id": job_id, "message": "Playlist em execução."})
+                continue
+            threading.Thread(target=run_playlist_download,
+                args=(job_id, msg["url"], audio_profile, cookies_browser), daemon=True).start()
+            continue
         if cmd == "downloadSource":
             if not allowed_source(msg.get("url"), referrer):
                 write_message({"type": "error", "id": job_id, "message": "Fonte ou página de origem não permitida."})
