@@ -71,6 +71,22 @@ details .raw-url{margin-top:6px;word-break:break-all;font-family:monospace;color
 .local-download{background:linear-gradient(120deg,#135b72,#266b88)}
 .native-actions .cancel-btn{white-space:nowrap}
 .cookie-consent{display:flex;align-items:flex-start;gap:9px;margin:10px 0 3px;color:#ccd6e9;font-size:11px;line-height:1.45;cursor:pointer}.cookie-consent input{margin:2px 0 0;accent-color:#8170f6;flex-shrink:0}.local-download:disabled{background:#243550;color:#a2b2c7;opacity:.86}.manual-post{margin:11px 0 6px;padding:10px 11px;background:#151f32;border:1px solid #2c3b59;border-radius:10px}.manual-post .section-title{margin-bottom:7px}.manual-post-input{width:100%;height:36px;border:1px solid #445473;border-radius:8px;background:#0b1324;color:#e9effd;font:12px system-ui;padding:0 9px;outline:none}.manual-post-input:focus{border-color:#8b70fb}.manual-post-input::placeholder{color:#7586a4}.session-choice{margin:11px 0;padding:10px 11px;border:1px solid #2a3c5a;background:#111b2f;border-radius:10px}.session-label{display:block;margin-bottom:7px;color:#dce5f8;font-size:11px;font-weight:700}.session-select{width:100%;min-height:36px;padding:7px 9px;background:#0e1627;border:1px solid #415273;color:#e2eafb;border-radius:8px;font-size:11px;outline:none}.session-select:focus{border-color:#9988ff}.session-choice .notice{margin-top:7px}.quality-panel{margin:10px 0;padding:10px;border:1px solid #2d3d5d;border-radius:11px;background:#111a2c}.quality-label{display:block;margin-bottom:8px;color:#d7e3fc;font-size:12px;font-weight:650}.quality-select{width:100%;min-height:36px;border:1px solid #425477;background:#0a1427;color:#e8edfa;padding:6px 9px;border-radius:8px;font-size:12px;outline:none}.quality-select:focus{border-color:#8074f8}.quality-select option:disabled{color:#8391aa}.quality-panel .cancel-btn{width:100%;text-align:center}.quality-panel .notice{margin-top:8px}.audio-extract-panel{display:flex;flex-direction:column;gap:9px;margin:11px 0;padding:12px;background:#121d32;border:1px solid #324461;border-radius:12px}.audio-extract-panel .section-title{margin:0 0 2px;color:#e6eaff;font-weight:750}.audio-extract-panel .quality-select,.audio-extract-panel .session-select{width:100%}.audio-extract-panel .notice{margin:2px 0 0;font-size:11px;line-height:1.5}.audio-download{width:100%;background:linear-gradient(110deg,#24677e,#307b96);color:#fff}.audio-download:hover:not(:disabled){filter:brightness(1.12)}
+
+.playlist-tool{margin:12px 0 4px;background:#131d32;border:1px solid #334466;border-radius:13px;overflow:hidden}
+.playlist-tool>summary{display:flex;align-items:center;justify-content:space-between;list-style:none;padding:12px 13px;color:#e6e9ff;font-weight:750;font-size:13px}
+.playlist-tool>summary::-webkit-details-marker{display:none}
+.playlist-tool>summary span{font-size:11px;color:var(--muted);font-weight:500}
+.playlist-body{padding:0 12px 13px;display:flex;flex-direction:column;gap:9px}
+.playlist-body label{display:block;font-size:11px;font-weight:700;color:#dbe5ff}
+.playlist-body input,.playlist-body select{display:block;width:100%;padding:9px;margin-top:5px;border-radius:8px;border:1px solid #445677;background:#0a1425;color:#edf2ff;font:12px system-ui;min-width:0}
+.playlist-body input:focus,.playlist-body select:focus{outline:2px solid #8b70fb}
+.playlist-actions{display:flex;gap:8px}
+.playlist-actions button{border:0;border-radius:9px;padding:10px 8px;font-weight:750;color:#fff}
+.playlist-start{flex:1;background:linear-gradient(100deg,#8559f2,#687af5)}
+.playlist-cancel{background:#39253d;color:#ffcfdd!important}
+.playlist-caption{color:var(--muted);font-size:11px;line-height:1.5}
+.playlist-progress{width:100%;height:7px;accent-color:#8070f5}
+.playlist-status{color:#d7e0f3;font-size:11px;line-height:1.5;word-break:break-word}
 </style>
 </head>
 <body>
@@ -80,6 +96,38 @@ details .raw-url{margin-top:6px;word-break:break-all;font-family:monospace;color
   <div class="header-actions"><button id="refresh" class="icon-btn" title="Atualizar mídias" aria-label="Atualizar">↻</button><button id="clear" class="icon-btn" title="Limpar lista e procurar novamente" aria-label="Limpar">⌫</button></div>
  </header>
  <div class="page-banner"><div class="page-avatar" id="pageInitial">🌐</div><div class="page-info"><div id="pageTitle" class="page-name">Página atual</div><div id="pageAddress" class="page-desc">Detectando arquivos disponíveis...</div></div><span class="tiny-dot" title="Detecção ativa"></span></div>
+ <details id="playlistTool" class="playlist-tool">
+   <summary>♫ Baixar playlist do YouTube <span>Em lote ▾</span></summary>
+   <div class="playlist-body">
+    <label for="playlistUrl">Cole o link da playlist
+      <input id="playlistUrl" type="url" spellcheck="false" autocomplete="off"
+       placeholder="https://www.youtube.com/playlist?list=..." maxlength="2048">
+    </label>
+    <label for="playlistFormat">Formato de saída
+      <select id="playlistFormat">
+       <option value="mp3-192">MP3 · 192 kbps (recomendado)</option>
+       <option value="mp3-128">MP3 · 128 kbps</option>
+       <option value="mp3-320">MP3 · 320 kbps</option>
+       <option value="m4a">M4A · melhor disponível</option>
+       <option value="opus">Opus · melhor disponível</option>
+      </select>
+    </label>
+    <label for="playlistCookies">Sessão (opcional)
+      <select id="playlistCookies">
+       <option value="">Sem sessão — playlist pública</option>
+       <option value="brave">Usar sessão do Brave</option>
+       <option value="firefox">Usar sessão do Firefox</option>
+      </select>
+    </label>
+    <div class="playlist-actions">
+     <button type="button" class="playlist-start" id="playlistStart">Baixar todos os áudios</button>
+     <button type="button" class="playlist-cancel" id="playlistCancel" disabled>Cancelar</button>
+    </div>
+    <progress class="playlist-progress" id="playlistProgress" max="100" value="0" hidden></progress>
+    <div class="playlist-status" id="playlistStatus" aria-live="polite"></div>
+    <div class="playlist-caption">Cada faixa é salva separadamente em Downloads/MediaFinder/Playlists. Você pode fechar a janela; iniciar novamente retoma os itens pendentes. Para conteúdo acessível e autorizado.</div>
+   </div>
+  </details>
  <nav class="tabs" aria-label="Tipo de mídia">
   <button type="button" class="tab active" data-kind="video">▶ Vídeos <span class="count" id="videoCount"></span></button>
   <button type="button" class="tab" data-kind="image">▧ Imagens <span class="count" id="imageCount"></span></button>
