@@ -1,4 +1,26 @@
-# Media Finder Pro · v1.13.0
+# Media Finder Pro · v1.14.0
+
+## Novo: baixar o áudio de playlists inteiras do YouTube
+
+A extensão agora inclui um painel **♫ Baixar playlist do YouTube** acima das abas de mídia. Você pode colar um link no formato `https://www.youtube.com/playlist?list=...` (ou abrir um vídeo que contenha o parâmetro `list`), escolher o formato e iniciar um processamento em lote pelo assistente local yt-dlp/FFmpeg.
+
+- **Formatos:** MP3 128/192/320 kbps, M4A e Opus, iguais ao modo de áudio individual.
+- **Uma faixa por arquivo:** não junta toda a playlist em um arquivo único e não produz arquivos de vídeo como saída final. Os arquivos ficam em `Downloads/MediaFinder/Playlists/<playlist-id>/<formato>/`.
+- **Sem limite fixo de quantidade de faixas:** o yt-dlp percorre os vídeos da playlist, sujeito a disponibilidade, restrições do site, espaço em disco e duração do processamento.
+- **Retomada sem duplicar:** um arquivo de histórico `.completed-ids.txt` é mantido na pasta de cada playlist/formato. Ao repetir o mesmo download, o yt-dlp ignora os vídeos registrados como concluídos e usa suporte a arquivos parciais.
+- **Erros parciais:** vídeos removidos, privados ou indisponíveis são ignorados para permitir continuar os demais. O painel acompanha a faixa atual, número de áudios salvos e falhas e explica quando não foi possível baixar tudo.
+- **Sessão opcional:** sem cookies por padrão. Você pode escolher Brave ou Firefox, somente se tiver acesso autorizado; isso não remove DRM nem contorna autenticação.
+- **Execução independente do popup:** enquanto o Brave e seu assistente local estiverem ativos, a conexão nativa mantém o lote em andamento após fechar a janelinha da extensão. Ao abri-la novamente, o estado é recuperado. Se o navegador ou o PC encerrar o processo, execute novamente para retomar.
+- **Cancelar:** interrompe o processo yt-dlp/FFmpeg; arquivos concluídos continuam no disco e no histórico.
+- **Segurança:** apenas URLs de playlists específicas do domínio oficial do YouTube são aceitas. Não são aceitos links de busca, canais, redirecionamentos ou páginas de vídeo isolado sem `list`.
+
+### Atualização da v1.13.0
+
+Execute `git pull origin main` e depois **recompile o assistente nativo**, executando `powershell -ExecutionPolicy Bypass -File .\\native\\install.ps1 -ExtensionId SEU_ID`. Feche o Brave completamente, reabra-o e recarregue o Media Finder Pro em `brave://extensions`. O rodapé deve exibir **v1.14.0**.
+
+Os testes automatizados cobrem validação e normalização dos links, argumentos de segurança do yt-dlp, estrutura de pastas, retomada, validação de cada arquivo, cancelamento e relatório de falhas. O download de uma playlist real depende do acesso permitido pelo YouTube e não é considerado confirmado por esses testes automatizados.
+
+---
 
 ## Novo: baixar somente o áudio dos vídeos
 
