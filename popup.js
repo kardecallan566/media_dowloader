@@ -2,6 +2,7 @@ import { group, sortMedia, fileExtension } from './media-utils.js';
 import { canonicalMediaPageUrl } from './media-page.js';
 import { contextualSource, preferredDownloadMethod } from './download-routing.js';
 import { AUDIO_PROFILES, canExtractAudioFromVideo } from './audio-support.js';
+import { youtubePlaylistUrl } from './youtube-playlist.js';
 
 const $=id=>document.getElementById(id);
 const list=$('list');
@@ -536,6 +537,76 @@ function scheduleAutoVerify(focus){
   }
  },300);
 }
+
+let playlistJob=null;
+const playlistEls={
+ tool:$('playlistTool'),url:$('playlistUrl'),format:$('playlistFormat'),
+ cookies:$('playlistCookies'),start:$('playlistStart'),
+ cancel:$('playlistCancel'),status:$('playlistStatus'),progress:$('playlistProgress')
+};
+function renderPlaylistJob(){
+ const job=playlistJob;
+ const busy=Boolean(job&&['connecting','running','canceling'].includes(job.status));
+ const valid=Boolean(youtubePlaylistUrl(playlistEls.url.value));
+ playlistEls.start.disabled=busy||!valid;
+ playlistEls.cancel.disabled=!busy||job.status==='canceling';
+ playlistEls.url.disabled=busy;
+ playlistEls.format.disabled=busy;
+ playlistEls.cookies.disabled=busy;
+ playlistEls.start.textContent=busy?'Baixando playlist...':'Baixar todos os áudios';
+ if(!job){
+  playlistEls.status.textContent=valid?'Pronto para iniciar a playlist.':'Informe um link válido de playlist do YouTube.';
+  playlistEls.progress.hidden=true;
+  return;
+ }
+ const done=job.status==='done'||job.status==='partial';
+ const prefix=({done:'Concluído',partial:'Concluído com pendências',
+  error:'Erro',canceled:'Cancelado',interrupted:'Interrompido',
+  canceling:'Cancelando',connecting:'Conectando',running:'Processando'})[job.status]||job.status;
+ const parts=[prefix,job.message||''];
+ if(job.current)parts.push('Faixa '+job.current+(job.total?' de '+job.total:''));
+ if(job.saved||job.previous||job.failed||done)
+  parts.push('Novas: '+(job.saved||0)+' · Anteriores: '+(job.previous||0)+' · Falhas: '+(job.failed||0));
+ playlistEls.status.textContent=parts.join(' · ');
+ playlistEls.progress.hidden=!busy&&!done;
+ if(job.total>0){
+  playlistEls.progress.value=Math.max(0,Math.min(100,
+   done?100:Math.round(((job.current||0)/job.total)*100)));
+ }else if(done)playlistEls.progress.value=100;
+ else playlistEls.progress.removeAttribute('value');
+}
+async function refreshPlaylistJob(){
+ try{
+  const response=await chrome.runtime.sendMessage({cmd:'getPlaylistAudioJob'});
+  if(!response?.ok&&response?.error)throw new Error(response.error);
+  playlistJob=response?.job||null;
+  renderPlaylistJob();
+ }catch(error){playlistEls.status.textContent='Não foi possível ler o estado da playlist: '+error.message;}
+}
+playlistEls.url.oninput=()=>renderPlaylistJob();
+playlistEls.start.onclick=async()=>{
+ const url=youtubePlaylistUrl(playlistEls.url.value);
+ if(!url){playlistEls.status.textContent='Cole um link válido de playlist.';return;}
+ playlistEls.start.disabled=true;
+ playlistEls.status.textContent='Iniciando download em lote...';
+ try{
+  const result=await chrome.runtime.sendMessage({cmd:'startPlaylistAudio',
+   url,audioProfile:playlistEls.format.value,
+   cookiesBrowser:playlistEls.cookies.value||null});
+  if(!result?.ok)throw new Error(result?.error||'Não foi possível iniciar a playlist.');
+  playlistEls.tool.open=true;
+ }catch(error){playlistEls.status.textContent=error.message;}
+ await refreshPlaylistJob();
+};
+playlistEls.cancel.onclick=async()=>{
+ playlistEls.cancel.disabled=true;
+ try{
+  const result=await chrome.runtime.sendMessage({cmd:'cancelPlaylistAudio'});
+  if(!result?.ok)throw new Error(result?.error||'Não foi possível cancelar.');
+ }catch(error){playlistEls.status.textContent=error.message;}
+ await refreshPlaylistJob();
+};
+
 async function load(){
  if(tabId===null)return;
  if(loading)return;
@@ -568,12 +639,22 @@ chrome.storage.onChanged.addListener((changes,area)=>{
  if(area==='local'&&changes.mediaStore){
   clearTimeout(refreshTimer);refreshTimer=setTimeout(load,100);
  }
+ if(area==='local'&&changes.playlistAudioJob){
+  playlistJob=changes.playlistAudioJob.newValue||null;
+  renderPlaylistJob();
+ }
 });
 (async()=>{
  try{
   const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
   if(!tab?.id)throw new Error('Não foi possível identificar a aba atual.');
   tabId=tab.id;tabUrl=tab.url||'';
+  const activePlaylist=youtubePlaylistUrl(tabUrl);
+  if(activePlaylist&&!playlistEls.url.value){
+   playlistEls.url.value=activePlaylist;
+   playlistEls.tool.open=true;
+  }
+  await refreshPlaylistJob();
   $('pageTitle').textContent=tab.title||'Página atual';
   try{
    const url=new URL(tabUrl);
