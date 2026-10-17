@@ -1,4 +1,14 @@
-# Assistente local · v1.12.0
+# Assistente local · v1.13.0
+
+## Exportação de áudio dos vídeos
+
+O Native Messaging Host aceita `audioProfile` com valores permitidos exclusivamente `mp3-128`, `mp3-192`, `mp3-320`, `m4a` ou `opus`. Quando presente, o assistente solicita uma faixa de áudio com `yt-dlp --format bestaudio/best --extract-audio`, converte pelo FFmpeg para o formato escolhido e verifica o resultado com FFprobe. Nenhum argumento arbitrário informado pela página pode ser executado.
+
+O modo de vídeo continua separado, e a função de áudio não altera a seleção de resoluções 360p–2160p. Para publicações com autenticação, os cookies de Brave/Firefox só são solicitados com escolha explícita. Os domínios/URLs permitidos permanecem limitados aos já reconhecidos; recusas de acesso ou DRM não são contornados.
+
+**Após atualizar**, execute novamente `native/install.ps1` com o ID do Media Finder Pro para recompilar `mediafinder_native.exe`. Em seguida, reinicie o Brave. O áudio concluído aparece em `Downloads/MediaFinder`.
+
+---
 
 Os downloads locais agora aceitam uma opção de qualidade: `best` (melhor disponível), `2160`, `1440`, `1080`, `720`, `480` ou `360`. Estes números são limites superiores de resolução aplicados às faixas existentes. A ferramenta não amplia artificialmente o vídeo nem escolhe qualidade superior quando a selecionada não está disponível.
 
