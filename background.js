@@ -2,6 +2,7 @@ import { normalizedUrl, mediaType, mediaKey, shouldIgnoreNetwork, ranking, fileE
 import { validateProbe, parseRange } from './download-check.js';
 import { evaluateRangedPreview } from './range-downloader.js';
 import { canonicalMediaPageUrl } from './media-page.js';
+import { youtubePlaylistUrl } from './youtube-playlist.js';
 import { contextualSource, signedExpiry } from './download-routing.js';
 
 const STORE='mediaStore';
@@ -12,6 +13,113 @@ const clean=s=>String(s||'').replace(/[\u0000-\u001f]/g,' ').trim().slice(0,160)
 const running=s=>['checking','running','downloading','saving','native-connecting','native-running'].includes(s);
 const nativePorts=new Map();
 const offscreenDownloadIds=new Set();
+const PLAYLIST_KEY='playlistAudioJob';
+let playlistNativePort=null;
+let playlistUpdates=Promise.resolve();
+function savePlaylistJob(job){
+ playlistUpdates=playlistUpdates.catch(()=>{}).then(()=>
+   chrome.storage.local.set({[PLAYLIST_KEY]:job}));
+ return playlistUpdates;
+}
+async function getPlaylistJob(){
+ await playlistUpdates.catch(()=>{});
+ const stored=await chrome.storage.local.get(PLAYLIST_KEY);
+ const job=stored[PLAYLIST_KEY]||null;
+ if(job&&['connecting','running','canceling'].includes(job.status)&&!playlistNativePort){
+  const interrupted={...job,status:'interrupted',
+   message:'Assistente desconectado. Inicie novamente para retomar a playlist.'};
+  await savePlaylistJob(interrupted);
+  return interrupted;
+ }
+ return job;
+}
+async function startPlaylistAudio(url,profile,cookiesBrowser=null){
+ const canonical=youtubePlaylistUrl(url);
+ if(!canonical)throw new Error('Informe o link de uma playlist do YouTube.');
+ validateAudioProfile(profile);
+ if(![null,'brave','firefox'].includes(cookiesBrowser))
+  throw new Error('Sessão do navegador inválida.');
+ if(playlistNativePort)throw new Error('Já existe uma playlist em processamento.');
+ const previous=await getPlaylistJob();
+ if(previous&&['connecting','running','canceling'].includes(previous.status))
+  throw new Error('Aguarde ou cancele a playlist em andamento.');
+ const id=crypto.randomUUID();
+ const job={id,url:canonical,profile,status:'connecting',saved:0,failed:0,
+  previous:0,current:0,total:0,startedAt:Date.now(),
+  message:'Conectando ao assistente de playlists...'};
+ await savePlaylistJob(job);
+ let port;
+ try{port=chrome.runtime.connectNative('com.mediafinder.bridge');}
+ catch(error){
+  await savePlaylistJob({...job,status:'error',message:error.message||'Assistente indisponível.'});
+  throw error;
+ }
+ const state={id,port,job,finished:false,lastWrite:0};
+ playlistNativePort=state;
+ const update=(patch)=>{
+  if(state.finished)return;
+  Object.assign(state.job,patch);
+  savePlaylistJob({...state.job}).catch(console.warn);
+ };
+ port.onMessage.addListener(msg=>{
+  if(msg.id!==id||state.finished)return;
+  if(msg.type==='started'){
+   update({status:'running',message:msg.message||'Iniciando...' });
+  }else if(msg.type==='progress'){
+   if(state.job.status==='canceling')return;
+   const now=Date.now();
+   Object.assign(state.job,{
+    status:'running',current:msg.current??state.job.current,
+    total:msg.total??state.job.total,saved:msg.saved??state.job.saved,
+    failed:msg.failed??state.job.failed,
+    message:msg.message||state.job.message
+   });
+   if(now-state.lastWrite>=900 || msg.saved!==undefined){
+    state.lastWrite=now;
+    savePlaylistJob({...state.job}).catch(console.warn);
+   }
+  }else if(msg.type==='complete'||msg.type==='error'){
+   state.finished=true;
+   const status=msg.type==='complete'?(msg.partial?'partial':'done'):
+    msg.code==='CANCELED'?'canceled':'error';
+   savePlaylistJob({...state.job,status,
+    saved:msg.saved??state.job.saved,previous:msg.previous??state.job.previous,
+    failed:msg.failed??state.job.failed,total:msg.total??state.job.total,
+    message:msg.message||'Processamento finalizado.'}).finally(()=>{
+      if(playlistNativePort===state)playlistNativePort=null;
+      try{port.disconnect();}catch{}
+    }).catch(console.warn);
+  }
+ });
+ port.onDisconnect.addListener(()=>{
+  if(playlistNativePort===state)playlistNativePort=null;
+  if(!state.finished){
+   state.finished=true;
+   savePlaylistJob({...state.job,status:'interrupted',
+    message:'Conexão com assistente encerrada. Recomece para retomar arquivos restantes.'}).catch(console.warn);
+  }
+ });
+ try{port.postMessage({cmd:'downloadPlaylistAudio',id,url:canonical,
+   audioProfile:profile,cookiesBrowser});}
+ catch(error){
+  state.finished=true;playlistNativePort=null;
+  try{port.disconnect();}catch{}
+  await savePlaylistJob({...job,status:'error',message:error.message||'Falha no envio da playlist.'});
+  throw error;
+ }
+ return {ok:true,id};
+}
+async function cancelPlaylistAudio(){
+ const state=playlistNativePort;
+ if(!state)throw new Error('Nenhuma playlist está em execução.');
+ if(state.job.status==='canceling')return {ok:true};
+ Object.assign(state.job,{status:'canceling',message:'Cancelando a playlist...'});
+ await savePlaylistJob({...state.job});
+ try{state.port.postMessage({cmd:'cancel',id:state.id});}
+ catch(error)throw new Error(error.message||'Não foi possível cancelar.');
+ return {ok:true};
+}
+
 const AUDIO_FORMATS=new Set(['mp3-128','mp3-192','mp3-320','m4a','opus']);
 function validateAudioProfile(profile){
  if(!AUDIO_FORMATS.has(profile))throw new Error('Formato de áudio inválido.');
@@ -488,6 +596,10 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
    await saveCandidates(sender.tab?.id,list,'page',sender.frameId||0,msg.cmd==='mediaSnapshot');
    return {ok:true};
   }
+  if(msg.cmd==='getPlaylistAudioJob')return {job:await getPlaylistJob()};
+  if(msg.cmd==='startPlaylistAudio')return startPlaylistAudio(msg.url,msg.audioProfile,
+    msg.cookiesBrowser||null);
+  if(msg.cmd==='cancelPlaylistAudio')return cancelPlaylistAudio();
   if(msg.cmd==='getMediaForTab'){
    const {mediaStore={}}=await chrome.storage.local.get(STORE);
    return {items:mediaStore[String(msg.tabId)]||[]};
