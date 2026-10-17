@@ -105,12 +105,35 @@ def quality_format(quality):
     return "bv*[height<=" + quality + "]+ba/b[height<=" + quality + "]"
 
 
-def command_for_source(url, referrer, quality="best"):
+def audio_options(profile):
+    """Validated output profiles only; never allow user-controlled yt-dlp arguments."""
+    profiles = {
+        "mp3-128": ("mp3", "128K"),
+        "mp3-192": ("mp3", "192K"),
+        "mp3-320": ("mp3", "320K"),
+        "m4a": ("m4a", "0"),
+        "opus": ("opus", "0"),
+    }
+    if not isinstance(profile, str) or profile not in profiles:
+        raise RuntimeError("Formato de áudio inválido.")
+    return profiles[profile]
+
+
+def audio_arguments(profile):
+    fmt, bitrate = audio_options(profile)
+    return ["--format", "bestaudio/best", "--extract-audio",
+            "--audio-format", fmt, "--audio-quality", bitrate]
+
+
+def command_for_source(url, referrer, quality="best", audio_profile=None):
     if not allowed_source(url, referrer):
         raise RuntimeError("Fonte não autorizada para download contextual. Confira a página de origem.")
     if source_expired(url):
         raise RuntimeError("Link temporário HLS expirou. Atualize a página e capture a playlist novamente.")
-    quality_format(quality)
+    if audio_profile is None:
+        quality_format(quality)
+    else:
+        audio_options(audio_profile)
     tool = shutil.which("yt-dlp")
     if not tool:
         raise RuntimeError("yt-dlp não instalado.")
@@ -121,7 +144,13 @@ def command_for_source(url, referrer, quality="best"):
                  "--paths", str(directory),
                  "--output", "%(title).90B__%(id)s.%(ext)s",
                  "--print", "after_move:filepath"]
-    if urlsplit(url).path.lower().endswith(".m3u8"):
+    if audio_profile is not None:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise RuntimeError("FFmpeg é necessário para extrair áudio.")
+        arguments.extend(["--ffmpeg-location", str(Path(ffmpeg).parent)])
+        arguments.extend(audio_arguments(audio_profile))
+    elif urlsplit(url).path.lower().endswith(".m3u8"):
         if quality != "best":
             arguments.extend(["--format", quality_format(quality)])
         ffmpeg = shutil.which("ffmpeg")
@@ -160,12 +189,14 @@ def downloads_directory():
     return folder
 
 
-def command_for(url, cookies_browser=None, quality="best"):
+def command_for(url, cookies_browser=None, quality="best", audio_profile=None):
     if not allowed_url(url):
         raise RuntimeError("Abra uma publicação ou Reel específico, não a página inicial.")
     if cookies_browser not in (None, "brave", "firefox"):
         raise RuntimeError("Navegador de sessão não permitido.")
-    requested_format=quality_format(quality)
+    requested_format=quality_format(quality) if audio_profile is None else None
+    if audio_profile is not None:
+        audio_options(audio_profile)
     ytdlp = shutil.which("yt-dlp")
     ffmpeg = shutil.which("ffmpeg")
     if not ytdlp:
@@ -177,13 +208,17 @@ def command_for(url, cookies_browser=None, quality="best"):
         ytdlp, "--ignore-config", "--no-playlist", "--no-overwrites",
         "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2",
         "--restrict-filenames",
-        "--newline", "--merge-output-format", "mp4",
-        "--format", requested_format,
+        "--newline",
         "--ffmpeg-location", str(Path(ffmpeg).parent),
         "--paths", str(directory),
         "--output", "%(title).100B__%(id)s.%(ext)s",
         "--print", "after_move:filepath"
     ]
+    if audio_profile is not None:
+        arguments.extend(audio_arguments(audio_profile))
+    else:
+        arguments.extend(["--merge-output-format", "mp4",
+                          "--format", requested_format])
     if cookies_browser in ("brave", "firefox"):
         arguments.extend(["--cookies-from-browser", cookies_browser])
     arguments.extend(["--", url])
@@ -216,6 +251,39 @@ def verify_saved_video(filename):
     duration = info.get("format", {}).get("duration")
     if duration is not None and (float(duration) < 0.5):
         raise RuntimeError("A duração do vídeo salvo é inválida.")
+    return candidate
+
+
+def verify_saved_audio(filename):
+    """Ensure audio-only export contains audio frames and no video tracks."""
+    destination = downloads_directory().resolve()
+    candidate = Path(filename.strip().strip('"')).resolve()
+    if destination not in candidate.parents or not candidate.is_file():
+        raise RuntimeError("Arquivo de áudio fora da pasta Downloads/MediaFinder.")
+    if candidate.stat().st_size < 1024:
+        raise RuntimeError("Arquivo de áudio vazio ou incompleto.")
+    if candidate.suffix.lower() not in (".mp3", ".m4a", ".opus"):
+        raise RuntimeError("Extensão do áudio exportado inesperada.")
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("FFprobe não disponível para validar o áudio.")
+    probe = subprocess.run([
+        ffprobe, "-v", "error", "-show_entries",
+        "stream=codec_type:format=duration", "-of", "json", str(candidate)],
+        stdin=subprocess.DEVNULL, capture_output=True,
+        text=True, encoding="utf-8", errors="replace", timeout=30, shell=False
+    )
+    if probe.returncode != 0:
+        raise RuntimeError("FFprobe não conseguiu verificar o áudio.")
+    info = json.loads(probe.stdout)
+    streams = info.get("streams", [])
+    if not any(track.get("codec_type") == "audio" for track in streams):
+        raise RuntimeError("O arquivo não contém uma faixa de áudio.")
+    if any(track.get("codec_type") == "video" for track in streams):
+        raise RuntimeError("O arquivo contém vídeo; não será marcado como áudio extraído.")
+    duration = info.get("format", {}).get("duration")
+    if duration not in (None, "N/A") and float(duration) < 0.1:
+        raise RuntimeError("A duração do áudio é inválida.")
     return candidate
 
 
@@ -379,12 +447,13 @@ def run_ytdlp_attempt(job_id, command):
     return result_code, file_path, failure or classify_failure(output) 
 
 
-def run_download(job_id, url, cookies_browser=None, source_referrer=None, quality="best"):
+def run_download(job_id, url, cookies_browser=None, source_referrer=None, quality="best",
+                 audio_profile=None):
     try:
         if source_referrer:
-            attempts = [(command_for_source(url, source_referrer, quality), None)]
+            attempts = [(command_for_source(url, source_referrer, quality, audio_profile), None)]
         else:
-            attempts = [(command_for(url, cookies_browser, quality), cookies_browser)]
+            attempts = [(command_for(url, cookies_browser, quality, audio_profile), cookies_browser)]
         cookie_failed = False
         for attempt_number in range(2):
             if attempt_number >= len(attempts):
@@ -397,8 +466,10 @@ def run_download(job_id, url, cookies_browser=None, source_referrer=None, qualit
                 try:
                     if not file_path:
                         raise RuntimeError("O assistente não recebeu o caminho do vídeo salvo.")
-                    verified = verify_saved_video(file_path)
-                    text = "Vídeo validado e salvo em " + str(verified.parent)
+                    verified = (verify_saved_audio(file_path) if audio_profile is not None
+                                else verify_saved_video(file_path))
+                    text = ("Áudio validado e salvo em " if audio_profile is not None
+                            else "Vídeo validado e salvo em ") + str(verified.parent)
                     if cookie_failed:
                         text = "Download público concluído sem usar cookies. " + text
                     write_message({"id": job_id, "type": "complete", "message": text})
@@ -418,7 +489,7 @@ def run_download(job_id, url, cookies_browser=None, source_referrer=None, qualit
                 cookie_failed = True
                 write_message({"id": job_id, "type": "warning", "code": error_code,
                                "message": "Leitura da sessão indisponível. Tentando o vídeo público sem cookies..."})
-                attempts.append((command_for(url, None, quality), None))
+                attempts.append((command_for(url, None, quality, audio_profile), None))
                 continue
             message = failure_message(error_code, cookie_failed, current_browser)
             write_message({"id": job_id, "type": "error", "code": error_code,
@@ -470,10 +541,17 @@ def main():
             write_message({"type": "error", "id": job_id, "message": "Download já iniciado."})
             continue
         quality = msg.get("quality", "best")
+        audio_profile = msg.get("audioProfile")
         try:
-            quality_format(quality)
+            if audio_profile is not None:
+                audio_options(audio_profile)
+                if quality != "best":
+                    raise RuntimeError("Qualidade de vídeo não deve ser enviada para áudio.")
+            else:
+                quality_format(quality)
         except RuntimeError:
-            write_message({"type":"error","id":job_id,"message":"Qualidade solicitada inválida."})
+            write_message({"type":"error","id":job_id,
+                           "message":"Qualidade ou formato de áudio inválido."})
             continue
         cookies_browser = msg.get("cookiesBrowser")
         if cookies_browser not in (None, "brave", "firefox"):
@@ -483,7 +561,8 @@ def main():
             write_message({"type": "error", "id": job_id, "message": "Cookies não são usados em downloads de fontes de terceiros."})
             continue
         threading.Thread(target=run_download,
-            args=(job_id, msg["url"], cookies_browser, referrer if cmd == "downloadSource" else None, quality),
+            args=(job_id, msg["url"], cookies_browser,
+                  referrer if cmd == "downloadSource" else None, quality, audio_profile),
             daemon=True).start()
 
 
