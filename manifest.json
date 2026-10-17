@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Encontra mídia, permite escolher resolução e salva arquivos grandes com gravação incremental.",
-  "version": "1.12.0",
+  "description": "Baixe vídeos e extraia apenas áudio em MP3, M4A ou Opus, com qualidade selecionável.",
+  "version": "1.13.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
