@@ -1,6 +1,7 @@
 import { group, sortMedia, fileExtension } from './media-utils.js';
 import { canonicalMediaPageUrl } from './media-page.js';
 import { contextualSource, preferredDownloadMethod } from './download-routing.js';
+import { AUDIO_PROFILES, canExtractAudioFromVideo } from './audio-support.js';
 
 const $=id=>document.getElementById(id);
 const list=$('list');
@@ -160,30 +161,15 @@ function hlsQualitySelector(item){
 }
 
 function canExtractAudio(item){
- if(item.type==='Player'){
-  try{
-   const host=new URL(tabUrl).hostname.toLowerCase();
-   return ['instagram.com','youtube.com','youtube-nocookie.com','youtu.be','pinterest.com']
-     .some(domain=>host===domain||host.endsWith('.'+domain));
-  }catch{return false;}
- }
- return (item.type==='Video'||item.type==='HLS')&&contextualSourceAvailable(item);
+ return canExtractAudioFromVideo(tabUrl,item);
 }
 function buildAudioPanel(item,isRunning){
  const panel=node('div','audio-extract-panel');
- const title=node('div','section-title','<notused>');
- title.textContent='♫ Baixar apenas áudio';
+ const title=node('div','section-title','♫ Baixar apenas áudio');
  panel.append(title);
  const picker=document.createElement('select');picker.className='quality-select';
  picker.setAttribute('aria-label','Formato e qualidade do áudio');
- const profiles=[
-  ['mp3-192','MP3 · 192 kbps (recomendado)'],
-  ['mp3-128','MP3 · 128 kbps (arquivo menor)'],
-  ['mp3-320','MP3 · 320 kbps'],
-  ['m4a','M4A · melhor disponível'],
-  ['opus','Opus · melhor disponível']
- ];
- for(const [value,label] of profiles){
+ for(const {value,label} of AUDIO_PROFILES){
   const opt=document.createElement('option');opt.value=value;opt.textContent=label;
   picker.append(opt);
  }
@@ -453,7 +439,7 @@ function mediaCard(item,index,{uncertain=false,audioOnly=false}={}){
   'Tipo da requisição: '+item.requestKind+' · HTTP '+(item.responseStatus||'?')));
  if(item.requestOrigin)detail.append(node('div','raw-url','Origem observada: '+item.requestOrigin));
  card.append(detail);
- if(item.type==='Player'&&playerSourcesOpen.has(item.id)){
+ if(!audioOnly&&item.type==='Player'&&playerSourcesOpen.has(item.id)){
   const panel=node('div','player-candidates');
   const all=possibleSources(item);
   panel.append(node('div','section-title',all.length?
