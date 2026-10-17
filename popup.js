@@ -17,6 +17,7 @@ const playerSourcesOpen=new Set();
 const sessionChoices=new Map();
 const pastedPostUrls=new Map();
 const chosenNativeQuality=new Map();
+const chosenAudioProfile=new Map();
 const hlsQualityList=new Map();
 const hlsSelectedVariant=new Map();
 let autoTimer=null;
@@ -158,7 +159,93 @@ function hlsQualitySelector(item){
  return panel;
 }
 
-function mediaCard(item,index,{uncertain=false}={}){
+function canExtractAudio(item){
+ if(item.type==='Player'){
+  try{
+   const host=new URL(tabUrl).hostname.toLowerCase();
+   return ['instagram.com','youtube.com','youtube-nocookie.com','youtu.be','pinterest.com']
+     .some(domain=>host===domain||host.endsWith('.'+domain));
+  }catch{return false;}
+ }
+ return (item.type==='Video'||item.type==='HLS')&&contextualSourceAvailable(item);
+}
+function buildAudioPanel(item,isRunning){
+ const panel=node('div','audio-extract-panel');
+ const title=node('div','section-title','<notused>');
+ title.textContent='♫ Baixar apenas áudio';
+ panel.append(title);
+ const picker=document.createElement('select');picker.className='quality-select';
+ picker.setAttribute('aria-label','Formato e qualidade do áudio');
+ const profiles=[
+  ['mp3-192','MP3 · 192 kbps (recomendado)'],
+  ['mp3-128','MP3 · 128 kbps (arquivo menor)'],
+  ['mp3-320','MP3 · 320 kbps'],
+  ['m4a','M4A · melhor disponível'],
+  ['opus','Opus · melhor disponível']
+ ];
+ for(const [value,label] of profiles){
+  const opt=document.createElement('option');opt.value=value;opt.textContent=label;
+  picker.append(opt);
+ }
+ picker.value=chosenAudioProfile.get(item.id)||'mp3-192';
+ picker.onchange=()=>chosenAudioProfile.set(item.id,picker.value);
+ panel.append(picker);
+
+ const player=item.type==='Player';
+ const directPage=player?(canonicalMediaPageUrl(item.pageUrl)||canonicalMediaPageUrl(tabUrl)):null;
+ const isExpired=item.type==='HLS'&&hlsExpired(item);
+ const button=node('button','download-btn audio-download',
+   isRunning?'Processando áudio...':'Extrair e baixar áudio');
+ button.disabled=isRunning||isExpired||Boolean(player&&!directPage&&!canonicalMediaPageUrl(pastedPostUrls.get(item.id)||''));
+ if(player&&!directPage){
+  const input=document.createElement('input');
+  input.type='url';input.className='manual-post-input';
+  input.placeholder=/pinterest\.com/i.test(tabUrl)?
+   'https://www.pinterest.com/pin/123456789/':
+   'Cole o link da publicação ou do vídeo';
+  input.setAttribute('aria-label','Endereço da publicação para extrair áudio');
+  input.value=pastedPostUrls.get(item.id)||'';
+  input.oninput=()=>{
+   pastedPostUrls.set(item.id,input.value.trim());
+   button.disabled=isRunning||!canonicalMediaPageUrl(input.value.trim());
+  };
+  panel.append(input);
+ }
+ if(player){
+  const selector=document.createElement('select');selector.className='session-select';
+  selector.setAttribute('aria-label','Sessão para baixar áudio');
+  for(const [value,label] of [['','Sem sessão (público)'],
+    ['brave','Usar sessão do Brave'],['firefox','Usar sessão do Firefox']]){
+   const opt=document.createElement('option');opt.value=value;opt.textContent=label;selector.append(opt);
+  }
+  selector.value=sessionChoices.get(item.id)||'';
+  selector.onchange=()=>{
+   if(selector.value)sessionChoices.set(item.id,selector.value);
+   else sessionChoices.delete(item.id);
+  };
+  panel.append(selector);
+ }
+ button.onclick=async()=>{
+  button.disabled=true;button.textContent='Conectando ao assistente...';notify('');
+  const cmd=player?'startNativeAudio':'startNativeSourceAudio';
+  try{
+   const answer=await chrome.runtime.sendMessage({
+    cmd,tabId,id:item.id,audioProfile:picker.value,
+    ...(player?{manualUrl:pastedPostUrls.get(item.id)||null,
+      cookiesBrowser:sessionChoices.get(item.id)||null}:{})
+   });
+   if(!answer?.ok)throw new Error(answer?.error||'O assistente não iniciou a extração de áudio.');
+  }catch(error){notify(error.message);}
+  await load();
+ };
+ panel.append(button);
+ panel.append(node('div','notice',isExpired?
+  'Playlist expirada: atualize a página antes de extrair áudio.':
+  'A extração utiliza FFmpeg; a qualidade final depende do áudio original. Arquivos privados ou protegidos podem não estar disponíveis.'));
+ return panel;
+}
+
+function mediaCard(item,index,{uncertain=false,audioOnly=false}={}){
  const kind=group(item.type);
  const card=node('article','media-card');
  const line=node('div','media-line');
@@ -168,7 +255,7 @@ function mediaCard(item,index,{uncertain=false}={}){
  const ext=fileExtension(item);
  chips.append(node('span','chip primary',item.type==='Player'?'PLAYER':item.type==='HLS'?'HLS':item.type==='DASH'?'DASH':(ext||'Arquivo').toUpperCase()));
  if(item.type==='Player'){
-  chips.append(node('span','chip verified','Vídeo identificado'));
+  chips.append(node('span','chip verified',audioOnly?'Áudio extraível':'Vídeo identificado'));
   if(item.engine)chips.append(node('span','chip',item.engine));
   if(item.trackVideo)chips.append(node('span','chip',item.trackVideo+' faixas de vídeo'));
   if(item.trackAudio)chips.append(node('span','chip',item.trackAudio+' faixas de áudio'));
@@ -202,6 +289,8 @@ function mediaCard(item,index,{uncertain=false}={}){
    track.append(fill);card.append(track);
   }
  }
+ const audioCapable=canExtractAudio(item);
+ if(!audioOnly){
  const actions=node('div','media-actions');
  const isRunning=['checking','running','saving','downloading','native-connecting','native-running'].includes(item.status);
  const blocked=item.type==='Player'||item.status==='blocked'||(item.analysis&&!item.analysis.canDownload);
@@ -353,6 +442,9 @@ function mediaCard(item,index,{uncertain=false}={}){
   card.append(authArea);
   card.append(node('div','notice','O assistente é opcional e não remove DRM. Ele baixa somente mídia acessível e pode exigir acesso autorizado.'));
  }
+ }
+ if(audioCapable)card.append(buildAudioPanel(item,
+  ['checking','running','saving','downloading','native-connecting','native-running'].includes(item.status)));
  const detail=document.createElement('details');
  const summary=document.createElement('summary');summary.textContent=uncertain?'Ver origem da fonte':'Detalhes técnicos';
  const url=node('div','raw-url',item.url);
@@ -397,10 +489,12 @@ function emptyMessage(){
 function render(){
  for(const tab of document.querySelectorAll('[data-kind]'))tab.classList.toggle('active',tab.dataset.kind===active);
  for(const kind of ['video','image','audio']){
-  const count=items.filter(item=>group(item.type)===kind&&item.source==='page'&&item.visible).length;
+  const count=items.filter(item=>(group(item.type)===kind||
+   (kind==='audio'&&canExtractAudio(item)))&&item.source==='page'&&item.visible).length;
   $(kind+'Count').textContent=count?String(Math.min(99,count)):'';
  }
- const choices=sortMedia(items.filter(item=>group(item.type)===active));
+ const choices=sortMedia(items.filter(item=>group(item.type)===active||
+  (active==='audio'&&canExtractAudio(item))));
  const page=choices.filter(item=>item.source==='page'&&item.visible);
  const oldPage=choices.filter(item=>item.source==='page'&&!item.visible);
  const network=choices.filter(item=>item.source!=='page');
@@ -413,7 +507,9 @@ function render(){
  if(!page.length)headingText=oldPage.length?'Detectado na página':'Possíveis arquivos';
  list.append(heading(headingText,`${focus.length} ${focus.length===1?'item':'itens'}`));
  const main=node('section','media-list');
- focus.forEach((item,index)=>main.append(mediaCard(item,index,{uncertain:item.source!=='page'})));
+ focus.forEach((item,index)=>main.append(mediaCard(item,index,{
+  uncertain:item.source!=='page',audioOnly:active==='audio'&&item.type!=='Audio'
+ })));
  list.append(main);
  if(!page.length&&!oldPage.length){
   list.append(node('div','notice','Estas fontes foram observadas nas requisições da página. O site pode carregar outros vídeos em segundo plano; confira a origem antes de baixar.'));
@@ -425,7 +521,9 @@ function render(){
   if(expanded){
    list.append(heading('Outras fontes', 'Inclui arquivos pré-carregados'));
    const extraList=node('section','media-list');
-   extra.slice(0,moreLimit).forEach((item,index)=>extraList.append(mediaCard(item,index+focus.length,{uncertain:true})));
+   extra.slice(0,moreLimit).forEach((item,index)=>extraList.append(mediaCard(item,index+focus.length,{
+    uncertain:true,audioOnly:active==='audio'&&item.type!=='Audio'
+   })));
    list.append(extraList);
    if(extra.length>moreLimit){
     const more=node('button','more-btn',`Mostrar mais ${Math.min(10,extra.length-moreLimit)} fontes`);
