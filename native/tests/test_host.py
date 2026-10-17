@@ -308,6 +308,95 @@ class NativeHostTests(unittest.TestCase):
         self.assertEqual(messages[-1]["type"], "complete")
         self.assertIn("Áudio validado", messages[-1]["message"])
 
+    def test_youtube_playlist_url_restricts_to_exact_playlist_not_watch(self):
+        playlist = "https://www.youtube.com/playlist?list=PLabcdefghijklmnop"
+        self.assertEqual(host.playlist_identifier(playlist), "PLabcdefghijklmnop")
+        self.assertIsNone(host.playlist_identifier("https://youtube.com/watch?v=abcdefghijk&list=PLabcdefghijklmnop"))
+        for candidate in (
+            "https://www.youtube.com/",
+            "https://www.youtube.com/playlist?list=short",
+            "http://www.youtube.com/playlist?list=PLabcdefghijklmnop",
+            "https://youtube.com.evil.net/playlist?list=PLabcdefghijklmnop",
+            "https://www.youtube.com/playlist?list=PLabcdefghijklmnop&list=PL1234567890",
+            "https://www.youtube.com/playlist?list=PLabcdefghijklmnop&redirect=https://evil.test",
+            "https://www.youtube.com/playlist?list=PLabcdefghijklmnop#fragment",
+        ):
+            self.assertIsNone(host.playlist_identifier(candidate), candidate)
+
+    def test_playlist_audio_command_processes_all_tracks_and_keeps_profile_archive(self):
+        url = "https://www.youtube.com/playlist?list=PLabcdefghijklmnop"
+        with TemporaryDirectory() as temp:
+            with patch.object(host, "downloads_directory", return_value=Path(temp)):
+                with patch.object(host.shutil, "which", side_effect=lambda value: "/usr/bin/" + value):
+                    cmd = host.command_for_playlist(url, "mp3-192")
+                    another = host.command_for_playlist(url, "m4a", "firefox")
+        self.assertIn("--yes-playlist", cmd)
+        self.assertNotIn("--no-playlist", cmd)
+        self.assertIn("--ignore-errors", cmd)
+        self.assertIn("--continue", cmd)
+        self.assertIn("--download-archive", cmd)
+        self.assertEqual(cmd[cmd.index("--audio-format") + 1], "mp3")
+        self.assertEqual(cmd[cmd.index("--audio-quality") + 1], "192K")
+        self.assertNotIn("--cookies-from-browser", cmd)
+        self.assertIn("mp3-192", cmd[cmd.index("--download-archive") + 1])
+        self.assertIn("m4a", another[another.index("--download-archive") + 1])
+        self.assertEqual(another[another.index("--cookies-from-browser") + 1], "firefox")
+        self.assertEqual(cmd[-2:], ["--", url])
+        self.assertFalse(any(option == "--max-downloads" for option in cmd))
+
+    def test_playlist_audio_job_tracks_items_and_verifies_each_file(self):
+        url = "https://www.youtube.com/playlist?list=PLabcdefghijklmnop"
+        messages = []
+        with TemporaryDirectory() as temp:
+            folder = Path(temp) / "Playlists" / "PLabcdefghijklmnop" / "mp3-192"
+            song = folder / "001_example.mp3"
+            def fake_run(job_id, command, on_line=None):
+                on_line("MFP_ITEM:1:2:Example track")
+                on_line("MFP_FILE:" + str(song))
+                on_line("MFP_ITEM:2:2:Unavailable track")
+                on_line("ERROR: Video unavailable")
+                return (0, None, "DOWNLOAD_FAILED")
+            with patch.object(host, "downloads_directory", return_value=Path(temp)):
+                with patch.object(host.shutil, "which", side_effect=lambda value: "/usr/bin/" + value):
+                    with patch.object(host, "verify_saved_audio", return_value=song) as verify:
+                        with patch.object(host, "run_ytdlp_attempt", side_effect=fake_run):
+                            with patch.object(host, "write_message", side_effect=messages.append):
+                                host.run_playlist_download("playlist123", url, "mp3-192")
+            verify.assert_called_once_with(str(song))
+        self.assertEqual(messages[-1]["type"], "complete")
+        self.assertTrue(messages[-1]["partial"])
+        self.assertEqual(messages[-1]["saved"], 1)
+        self.assertEqual(messages[-1]["failed"], 1)
+        self.assertEqual(messages[-1]["total"], 2)
+
+    def test_playlist_audio_resume_counts_already_archived_tracks(self):
+        url = "https://www.youtube.com/playlist?list=PLabcdefghijklmnop"
+        messages = []
+        with TemporaryDirectory() as temp:
+            folder = Path(temp) / "Playlists" / "PLabcdefghijklmnop" / "mp3-192"
+            folder.mkdir(parents=True)
+            (folder / ".completed-ids.txt").write_text("youtube aaaaaaaaaaa\nyoutube bbbbbbbbbbb\n", encoding="utf-8")
+            with patch.object(host, "downloads_directory", return_value=Path(temp)):
+                with patch.object(host.shutil, "which", side_effect=lambda value: "/usr/bin/" + value):
+                    with patch.object(host, "run_ytdlp_attempt", return_value=(0, None, "DOWNLOAD_FAILED")):
+                        with patch.object(host, "write_message", side_effect=messages.append):
+                            host.run_playlist_download("playlist789", url, "mp3-192")
+        self.assertEqual(messages[-1]["type"], "complete")
+        self.assertEqual(messages[-1]["previous"], 2)
+        self.assertEqual(messages[-1]["saved"], 0)
+
+    def test_playlist_cancellation_reports_resumable_status(self):
+        messages = []
+        url = "https://www.youtube.com/playlist?list=PLabcdefghijklmnop"
+        with TemporaryDirectory() as temp:
+            with patch.object(host, "downloads_directory", return_value=Path(temp)):
+                with patch.object(host.shutil, "which", side_effect=lambda value: "/usr/bin/" + value):
+                    with patch.object(host, "run_ytdlp_attempt", return_value=(-15, None, "CANCELED")):
+                        with patch.object(host, "write_message", side_effect=messages.append):
+                            host.run_playlist_download("playlist789", url, "opus")
+        self.assertEqual(messages[-1]["code"], "CANCELED")
+        self.assertIn("retomar", messages[-1]["message"])
+
     def test_missing_ffmpeg_reports_clear_error(self):
         with patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/yt-dlp" if name == "yt-dlp" else None):
             with self.assertRaisesRegex(RuntimeError, "FFmpeg"):
