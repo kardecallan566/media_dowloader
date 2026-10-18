@@ -1,4 +1,21 @@
-# Media Finder Pro · v1.14.0
+# Media Finder Pro · v1.14.1
+
+## Interface mais compacta para playlists do YouTube
+
+A ferramenta **Baixar playlist do YouTube** foi movida do topo da página para um **botão com ícone de lista e download**, ao lado de **Atualizar** e **Limpar** no cabeçalho.
+
+- Ao clicar no ícone, abre-se um painel sobreposto contendo **link da playlist, formato MP3/M4A/Opus, sessão opcional, botão Baixar, cancelamento e progresso**. Fechar o painel não encerra os downloads em lote.
+- O painel fica oculto por padrão para manter a lista de vídeos, imagens e áudios visível e organizada.
+- Para fechar, use o botão **×**, a tecla **Esc** ou clique fora do painel; o foco do teclado é mantido dentro do diálogo enquanto ele estiver aberto e volta ao botão que o abriu.
+- Enquanto uma playlist está em processamento, o ícone apresenta um indicador discreto. Um lote concluído ou com pendências também apresenta uma distinção visual para facilitar o acesso ao status.
+- A extensão lembra o **último link de playlist validado e o formato selecionado**, para facilitar downloads futuros. Não grava automaticamente a escolha de sessão/cookies.
+- Ao abrir a extensão em uma página de playlist do YouTube, o link é preenchido automaticamente; o painel permanece fechado até você clicar no ícone.
+
+**Atualização:** na pasta do projeto execute `git pull origin main`, acesse `brave://extensions`, clique em **Recarregar** no Media Finder Pro e reabra o popup. Confira **v1.14.1** no rodapé.
+
+Como foram alterados apenas HTML, CSS e JavaScript da extensão, **não é necessário recompilar o executável Python** desta vez. O assistente da v1.14.0 continua compatível.
+
+---
 
 ## Novo: baixar o áudio de playlists inteiras do YouTube
 
