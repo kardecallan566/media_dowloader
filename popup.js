@@ -539,14 +539,76 @@ function scheduleAutoVerify(focus){
 }
 
 let playlistJob=null;
+let playlistDraftTimer=null;
+let playlistPreviousFocus=null;
 const playlistEls={
- tool:$('playlistTool'),url:$('playlistUrl'),format:$('playlistFormat'),
+ tool:$('playlistTool'),toggle:$('playlistToggle'),close:$('playlistClose'),
+ backdrop:$('playlistBackdrop'),url:$('playlistUrl'),format:$('playlistFormat'),
  cookies:$('playlistCookies'),start:$('playlistStart'),
  cancel:$('playlistCancel'),status:$('playlistStatus'),progress:$('playlistProgress')
 };
+function openPlaylistPanel(){
+ if(!playlistEls.tool.hidden)return;
+ playlistPreviousFocus=document.activeElement;
+ playlistEls.tool.hidden=false;
+ playlistEls.backdrop.hidden=false;
+ playlistEls.toggle.setAttribute('aria-expanded','true');
+ (youtubePlaylistUrl(playlistEls.url.value)?playlistEls.start:playlistEls.url).focus();
+}
+function closePlaylistPanel(){
+ if(playlistEls.tool.hidden)return;
+ playlistEls.tool.hidden=true;
+ playlistEls.backdrop.hidden=true;
+ playlistEls.toggle.setAttribute('aria-expanded','false');
+ const target=playlistPreviousFocus?.isConnected?playlistPreviousFocus:playlistEls.toggle;
+ target.focus();
+ playlistPreviousFocus=null;
+}
+playlistEls.toggle.onclick=()=>playlistEls.tool.hidden?openPlaylistPanel():closePlaylistPanel();
+playlistEls.close.onclick=closePlaylistPanel;
+playlistEls.backdrop.onclick=closePlaylistPanel;
+document.addEventListener('keydown',event=>{
+ if(playlistEls.tool.hidden)return;
+ if(event.key==='Escape'){
+  event.preventDefault();closePlaylistPanel();return;
+ }
+ if(event.key!=='Tab')return;
+ const focusable=[...playlistEls.tool.querySelectorAll('button,input,select')]
+  .filter(element=>!element.disabled&&!element.hidden&&element.getClientRects().length);
+ if(!focusable.length){event.preventDefault();playlistEls.tool.focus();return;}
+ const first=focusable[0],last=focusable[focusable.length-1];
+ if(event.shiftKey&&(document.activeElement===first||document.activeElement===playlistEls.tool)){
+  event.preventDefault();last.focus();
+ }else if(!event.shiftKey&&(document.activeElement===last||
+          !playlistEls.tool.contains(document.activeElement))){
+  event.preventDefault();first.focus();
+ }
+});
+function persistPlaylistDraft(){
+ clearTimeout(playlistDraftTimer);
+ playlistDraftTimer=setTimeout(()=>{
+  const url=youtubePlaylistUrl(playlistEls.url.value);
+  if(!url)return;
+  chrome.storage.local.set({playlistFormDraft:{
+   url,format:playlistEls.format.value
+  }}).catch(()=>{});
+ },180);
+}
+
 function renderPlaylistJob(){
  const job=playlistJob;
  const busy=Boolean(job&&['connecting','running','canceling'].includes(job.status));
+ const indicator=busy?'running':
+  ['error','partial','interrupted'].includes(job?.status)?'warning':
+  job?.status==='done'?'done':'';
+ if(indicator)playlistEls.toggle.dataset.status=indicator;
+ else delete playlistEls.toggle.dataset.status;
+ const label=busy?'Playlist em andamento — abrir detalhes':
+  indicator==='warning'?'Playlist com pendências — abrir detalhes':
+  indicator==='done'?'Playlist concluída — abrir detalhes':
+  'Baixar áudios de uma playlist do YouTube';
+ playlistEls.toggle.title=label;
+ playlistEls.toggle.setAttribute('aria-label',label);
  const valid=Boolean(youtubePlaylistUrl(playlistEls.url.value));
  playlistEls.start.disabled=busy||!valid;
  playlistEls.cancel.disabled=!busy||job.status==='canceling';
@@ -583,7 +645,8 @@ async function refreshPlaylistJob(){
   renderPlaylistJob();
  }catch(error){playlistEls.status.textContent='Não foi possível ler o estado da playlist: '+error.message;}
 }
-playlistEls.url.oninput=()=>renderPlaylistJob();
+playlistEls.url.oninput=()=>{renderPlaylistJob();persistPlaylistDraft();};
+playlistEls.format.onchange=persistPlaylistDraft;
 playlistEls.start.onclick=async()=>{
  const url=youtubePlaylistUrl(playlistEls.url.value);
  if(!url){playlistEls.status.textContent='Cole um link válido de playlist.';return;}
@@ -594,7 +657,7 @@ playlistEls.start.onclick=async()=>{
    url,audioProfile:playlistEls.format.value,
    cookiesBrowser:playlistEls.cookies.value||null});
   if(!result?.ok)throw new Error(result?.error||'Não foi possível iniciar a playlist.');
-  playlistEls.tool.open=true;
+  persistPlaylistDraft();
  }catch(error){playlistEls.status.textContent=error.message;}
  await refreshPlaylistJob();
 };
@@ -650,11 +713,17 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   if(!tab?.id)throw new Error('Não foi possível identificar a aba atual.');
   tabId=tab.id;tabUrl=tab.url||'';
   const activePlaylist=youtubePlaylistUrl(tabUrl);
-  if(activePlaylist&&!playlistEls.url.value){
-   playlistEls.url.value=activePlaylist;
-   playlistEls.tool.open=true;
+  const {playlistFormDraft={}}=await chrome.storage.local.get('playlistFormDraft');
+  if(activePlaylist)playlistEls.url.value=activePlaylist;
+  else if(youtubePlaylistUrl(playlistFormDraft.url||'')){
+   playlistEls.url.value=playlistFormDraft.url;
   }
+  if(['mp3-128','mp3-192','mp3-320','m4a','opus'].includes(playlistFormDraft.format))
+   playlistEls.format.value=playlistFormDraft.format;
   await refreshPlaylistJob();
+  if(!playlistEls.url.value&&youtubePlaylistUrl(playlistJob?.url||''))
+   playlistEls.url.value=playlistJob.url;
+  renderPlaylistJob();
   $('pageTitle').textContent=tab.title||'Página atual';
   try{
    const url=new URL(tabUrl);
