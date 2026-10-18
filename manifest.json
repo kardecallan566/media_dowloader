@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Baixe vídeos, extraia áudio e salve playlists completas do YouTube em MP3, M4A ou Opus.",
-  "version": "1.14.0",
+  "description": "Encontre mídias e baixe playlists do YouTube com acesso rápido pelo cabeçalho.",
+  "version": "1.14.1",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
