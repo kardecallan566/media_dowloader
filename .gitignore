@@ -12,3 +12,10 @@ native/tests/__pycache__/
 node_modules/
 .venv/
 .vscode/
+
+# Media Finder Pro website local secrets and Cloudflare state
+website/.dev.vars
+website/.env*
+!website/.env.example
+website/.wrangler/
+website/node_modules/
