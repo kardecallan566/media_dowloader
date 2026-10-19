@@ -12,7 +12,7 @@ if(!masked){
     });
     const payload=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(payload.error||'Falha ao consultar a Stripe.');
-    title.textContent=payload.status==='paid'?'Pagamento confirmado':
+    title.textContent=payload.status==='active'?'Assinatura ativa':
       payload.status==='expired'?'Sessão expirada':'Pagamento em processamento';
     message.textContent=payload.message||'A confirmação depende da Stripe.';
   }catch(error){
