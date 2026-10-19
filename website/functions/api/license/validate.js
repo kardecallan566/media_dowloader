@@ -1,6 +1,6 @@
 // License validation happens on the server. This does not make local JS tamper-proof.
-import {reply} from '../_lib/stripe.js';
-import {licenseHash,isSubscriptionActive,fetchSubscription,registerLicenseDevice} from '../_lib/subscriptions.js';
+import {reply} from '../../_lib/stripe.js';
+import {licenseHash,isSubscriptionActive,fetchSubscription,registerLicenseDevice} from '../../_lib/subscriptions.js';
 
 function permittedOrigin(request,env){
  const origin=request.headers.get('Origin');
