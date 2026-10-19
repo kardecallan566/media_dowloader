@@ -1,87 +1,55 @@
 # Site oficial · Media Finder Pro
 
-Site comercial responsivo com checkout hospedado na Stripe e funções server-side do Cloudflare Pages. O site mora em `website/`, separado da extensão instalada no navegador.
+## Assinatura mensal e licenciamento
 
-## Estado atual
+O site comercial do Media Finder Pro está preparado para **Stripe Billing com cobrança recorrente mensal**, não mais pagamento único. O código da extensão e do assistente local permanece funcional sem alterações nesta etapa; nenhum bloqueio de assinatura foi ativado no cliente.
 
-- ✅ Landing page responsiva, apresentação, recursos, instalação, dúvidas e seção de compra.
-- ✅ API de preço consultando a Stripe sem divulgar chave privada, Checkout Sessions de pagamento único e verificação server-side do status.
-- ✅ Webhook Stripe com assinatura HMAC-SHA256, tolerância a timestamp e pedidos D1 com `session_id` único.
-- ✅ Páginas preliminares de privacidade/termos e confirmação. Testes automatizados.
-- **⛔ Checkout DESATIVADO por padrão**. Não habilite pagamentos antes de configurar a entrega real da licença, o instalador/release, o suporte, as políticas legais e a revisão da elegibilidade pela Stripe.
+**Implementado:** validação de um Price ID mensal ativo; Stripe Checkout `mode=subscription`; webhook com assinatura HMAC, eventos `customer.subscription.*` e `invoice.*`; consulta atualizada do status da Stripe; tabelas Cloudflare D1 de assinaturas, eventos e dispositivos; chave de licença derivada por HMAC no servidor e armazenada apenas como hash; endpoint `POST /api/license/validate` que permite até **dois dispositivos** por assinatura ativa, verifica o estado atual na Stripe e exige rate limiting.
 
-O site deliberadamente NÃO promete uma licença automática ou um download privado já entregue: o sistema de ativação/licenciamento e distribuição paga ainda precisam ser ligados ao pagamento antes de qualquer venda. O banco registra pedidos, mas não envia chaves de licença.
+**Ainda pendente:** entrega segura da chave ao assinante, cadastro/login do cliente, ativação de licença no produto, portal autenticado de cancelamento/gerenciamento da Stripe, direitos e termos comerciais definitivos e distribuição comercial. **As vendas continuam desativadas.** Consulte [SECURITY.md](./SECURITY.md) para os limites de proteção e as condições para ativar as cobranças.
 
-## Publicar pelo Cloudflare Pages (Git)
+### Publicar no Cloudflare Pages
 
-1. No painel **Workers & Pages → Create → Pages → Connect to Git**, selecione `kardecallan566/media_dowloader`.
-2. Configure **Root directory** como `website`, **Build command** vazio e **Build output directory** como `public`. O diretório `functions/` fica na raiz da pasta `website`, separado dos arquivos estáticos.
-3. Faça o primeiro deploy. Guarde o endereço real `https://...pages.dev` fornecido pelo painel.
-4. Crie um banco Cloudflare D1 específico para a loja, por exemplo `mediafinder-shop`; execute `wrangler d1 execute mediafinder-shop --remote --file=migrations/0001_orders.sql` a partir da pasta `website`, autenticado na sua conta.
-5. Em **Pages → Settings → Bindings**, vincule o D1 com o nome exato **`DB`**; redeploy para a função receber o binding.
+1. Crie um projeto Pages integrado ao GitHub `kardecallan566/media_dowloader`, com **Root directory `website`**, saída estática `public` e Pages Functions em `functions`.
+2. Crie e vincule uma base D1 ao binding exato `DB`. Execute, nesta ordem, `migrations/0001_orders.sql` (caso não exista) e `migrations/0002_subscriptions.sql`. Não utilize D1 de outros projetos.
+3. Defina o endereço verdadeiro da implantação na variável `SITE_ORIGIN` (ex.: `https://seu-site.pages.dev`, sem barra final).
+4. Configure os segredos `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `LICENSE_SIGNING_SECRET` **somente** em Secrets do Cloudflare; jamais envie segredos ao Git ou à interface pública da extensão.
+5. Configure `STRIPE_PRICE_ID` com o ID de um **preço mensal recorrente** na Stripe. Opcionalmente, use primeiro apenas o modo Test da Stripe.
+6. Configure `EXTENSION_ID` com o ID definitivo da extensão e o binding `LICENSE_RATE_LIMITER` (Rate Limiting do Cloudflare).
+7. **Mantenha `SALES_ENABLED=false`, `DELIVERY_READY=false` e `LICENSE_VALIDATION_ENABLED=false`** até que o cliente possa obter, usar, restaurar e cancelar sua assinatura.
 
-### Variáveis e segredos do Pages
+### Eventos do webhook Stripe
 
-Configure no ambiente de produção do Pages:
+URL `https://SEU_SITE/api/stripe-webhook`. Ative:
+`checkout.session.completed`,
+`customer.subscription.created`,
+`customer.subscription.updated`,
+`customer.subscription.deleted`,
+`customer.subscription.paused`,
+`customer.subscription.resumed`,
+`invoice.paid` e
+`invoice.payment_failed`.
 
-| Variável | Exemplo de valor | Segredo? |
-|---|---|---|
-| `SITE_ORIGIN` | `https://seu-projeto.pages.dev` (sem barra final) | não |
-| `STRIPE_SECRET_KEY` | chave secreta de **teste** obtida no Stripe Dashboard | **sim** |
-| `STRIPE_PRICE_ID` | Price ID `price_...` de pagamento **único** | não |
-| `STRIPE_WEBHOOK_SECRET` | assinatura `whsec_...` do endpoint de webhook | **sim** |
-| `SALES_ENABLED` | `false` | não |
-| `DELIVERY_READY` | `false` | não |
+A Stripe serve como fonte de verdade para o estado atual. As requisições de licença têm proteção por origem permitida, limite de chamadas e validação de assinatura diretamente na Stripe. Isso dificulta o compartilhamento casual, **mas não impede alterações feitas por alguém que possui o código local**.
 
-**Não envie segredos pela conversa, não inclua chaves em GitHub e não coloque `sk_test`, `sk_live` ou `whsec` em código do navegador.** Configure-os como variáveis criptografadas no Cloudflare Pages (ou localmente em `website/.dev.vars`, ignorado pelo Git).
+### Desenvolver e testar
 
-A disponibilidade de compra exige **todas** as configurações, `SALES_ENABLED=true`, `DELIVERY_READY=true` e D1. Mesmo com estas opções, a entrega da licença precisa ser implementada e testada antes de habilitar as cobranças.
-
-### Stripe Dashboard
-
-1. Crie um **produto Media Finder Pro** no modo de teste, com preço de **pagamento único** definido por você. Copie o Price ID (`price_...`). A implementação atual **não suporta assinatura recorrente**; isso poderá ser adicionado numa próxima etapa.
-2. Em **Developers → Webhooks**, cadastre a URL **`https://SEU_SITE/api/stripe-webhook`** e selecione os eventos:
-   - `checkout.session.completed`
-   - `checkout.session.async_payment_succeeded`
-   - `checkout.session.async_payment_failed`
-   - `checkout.session.expired`
-3. Copie a **signing secret** deste webhook para `STRIPE_WEBHOOK_SECRET`. Chaves/assinaturas de **teste** e **produção** são diferentes.
-4. Configure `SITE_ORIGIN` para a origem real do site; não use o caminho da página, barra final nem domínio inventado.
-5. Faça um teste de checkout com credenciais de teste, veja os eventos chegarem e confira o registro em D1. Confirme ausência de duplicatas quando o webhook for reentregue.
-
-A API do checkout responde com a URL de uma Stripe Checkout Session gerada no servidor e usa **apenas** o Price ID configurado; não aceita preço enviado pelo comprador. Para cada pagamento, as funções conferem a assinatura do webhook antes de escrever no banco. O navegador não deve decidir se um pagamento foi aprovado.
-
-### Testar localmente
-
-Requisitos: Node 22+, pnpm, Wrangler autenticado.
+Requisitos: Node 22+, pnpm, Wrangler para deploy.
 
 ```powershell
 cd website
 pnpm install
 pnpm dev
-```
-
-O comando acima utiliza `wrangler pages dev public`. Para testar Stripe de verdade, configure `website/.dev.vars` e passe o binding D1 local conforme a documentação do Wrangler. Não use o banco de produção para testes locais.
-
-Teste unitário, sem acesso à Stripe real:
-
-```powershell
 pnpm test
 ```
 
-O pipeline GitHub Actions do repositório principal também executa estes testes.
+A suíte do repositório principal também executa os testes do site. Para usar Stripe de verdade, configure as variáveis e o D1 no Pages; os testes de unidade simulam respostas da Stripe e não cobram ninguém.
 
-## Segurança / ativação antes de vender
+### Recursos de referência
 
-Ainda precisam ser concluídos: **chaves de licença e validação no produto**, entrega segura para comprador, política de suporte/reembolsos, identificação do vendedor e documento legal definitivo, análise das políticas Stripe e das plataformas cujo conteúdo o software processa, mecanismo de limitação de abuso do checkout, e testes completos de reembolsos/disputas. Não prometa funcionalidades que os testes de navegador ainda não comprovaram.
+- [Revisão de segurança, limitações e checklist de lançamento](./SECURITY.md)
+- https://docs.stripe.com/billing/subscriptions
+- https://docs.stripe.com/webhooks
+- https://developers.cloudflare.com/pages/functions/
+- https://developers.cloudflare.com/d1/
 
-Não exiba publicamente uma licença, e-mail, identificador de checkout ou outro dado privado de um comprador. O endpoint `/api/order` exibe apenas o status básico após consultar a Stripe, sem devolver e-mail ou informações do cartão.
-
-**Importante:** a extensão em si continua funcionando independentemente desta página. Nenhum arquivo da extensão ou do assistente foi modificado nesta implementação do site.
-
-## Documentação
-
-- Stripe Checkout: https://docs.stripe.com/payments/checkout
-- Webhooks: https://docs.stripe.com/webhooks
-- Cloudflare Pages Functions: https://developers.cloudflare.com/pages/functions/
-- D1 Bindings: https://developers.cloudflare.com/pages/functions/bindings/
