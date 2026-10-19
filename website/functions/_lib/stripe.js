@@ -9,7 +9,9 @@ export function reply(data,status=200){
 }
 export function configured(env){
   return Boolean(env?.STRIPE_SECRET_KEY && env?.STRIPE_PRICE_ID &&
-    env?.STRIPE_WEBHOOK_SECRET && env?.DB && isValidOrigin(env?.SITE_ORIGIN));
+    env?.STRIPE_WEBHOOK_SECRET && env?.DB &&
+    typeof env?.LICENSE_SIGNING_SECRET==='string' &&
+    env.LICENSE_SIGNING_SECRET.length>=32 && isValidOrigin(env?.SITE_ORIGIN));
 }
 export function isValidOrigin(value){
   if(typeof value!=='string')return false;
@@ -22,7 +24,9 @@ export function isValidOrigin(value){
 }
 export function salesReady(env){
   // No real payments until license delivery/activation and policies are ready.
-  return env?.SALES_ENABLED==='true' && env?.DELIVERY_READY==='true' && configured(env);
+  return env?.SALES_ENABLED==='true' && env?.DELIVERY_READY==='true' &&
+    env?.LICENSE_VALIDATION_ENABLED==='true' && Boolean(env?.LICENSE_RATE_LIMITER) &&
+    /^[a-p]{32}$/.test(env?.EXTENSION_ID||'') && configured(env);
 }
 export async function stripeApi(env,path,{method='GET',body=null,fetcher=fetch}={}){
   if(!env?.STRIPE_SECRET_KEY)throw new Error('STRIPE_NOT_CONFIGURED');
