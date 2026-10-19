@@ -12,16 +12,18 @@ export async function onRequestPost({request,env}){
  try{
   await getPrice(env);
   const fields=new URLSearchParams();
-  fields.set('mode','payment');
+  fields.set('mode','subscription');
+  fields.set('subscription_data[metadata][product]','mediafinder-pro');
+  fields.set('allow_promotion_codes','true');
   fields.set('line_items[0][price]',env.STRIPE_PRICE_ID);
   fields.set('line_items[0][quantity]','1');
   fields.set('metadata[product]','mediafinder-pro');
-  fields.set('client_reference_id','mediafinder-pro-license');
+  fields.set('client_reference_id','mediafinder-pro-monthly');
   fields.set('locale','pt-BR');
   fields.set('success_url',env.SITE_ORIGIN+'/sucesso.html?session_id={CHECKOUT_SESSION_ID}');
   fields.set('cancel_url',env.SITE_ORIGIN+'/?checkout=cancelado#planos');
   const session=await stripeApi(env,'checkout/sessions',{method:'POST',body:fields});
-  if(!session?.id||session.mode!=='payment'||!session?.url||
+  if(!session?.id||session.mode!=='subscription'||!session?.url||
     new URL(session.url).hostname!=='checkout.stripe.com')
     throw new Error('INVALID_CHECKOUT');
   return reply({url:session.url});
