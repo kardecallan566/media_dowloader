@@ -43,9 +43,11 @@ export async function stripeApi(env,path,{method='GET',body=null,fetcher=fetch}=
 export async function getPrice(env,fetcher=fetch){
   if(!/^price_[A-Za-z0-9]+$/.test(env?.STRIPE_PRICE_ID||''))throw new Error('PRICE_ID_INVALID');
   const price=await stripeApi(env,'prices/'+encodeURIComponent(env.STRIPE_PRICE_ID),{fetcher});
-  if(!price.active||price.type!=='one_time'||price.recurring||!Number.isInteger(price.unit_amount)||
+  if(!price.active||price.type!=='recurring'||price.recurring?.interval!=='month'||
+    price.recurring?.interval_count!==1||price.recurring?.usage_type!=='licensed'||
+    !Number.isInteger(price.unit_amount)||
     price.unit_amount<100||!(/^[a-z]{3}$/.test(price.currency||'')))throw new Error('PRICE_INACTIVE');
-  return {unitAmount:price.unit_amount,currency:price.currency};
+  return {unitAmount:price.unit_amount,currency:price.currency,interval:'month'};
 }
 function hexToBytes(input){
   if(!/^[a-fA-F0-9]{64}$/.test(input))return null;
