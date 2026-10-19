@@ -13,13 +13,13 @@ async function initStorefront(){
     if(data.price && Number.isInteger(data.price.unitAmount)){
       price.textContent = new Intl.NumberFormat('pt-BR',{
         style:'currency',currency:data.price.currency.toUpperCase()
-      }).format(data.price.unitAmount/100);
+      }).format(data.price.unitAmount/100) + (data.price.interval==='month'?' / mês':'');
     }
     salesReady = data.salesEnabled === true;
     buy.disabled = !salesReady;
     buy.textContent = salesReady ? 'Adquirir licença Pro ↗' : 'Disponível em breve';
     status.textContent = salesReady ?
-      'Pagamento processado na Stripe. Leia os termos antes de comprar.' :
+      'Assinatura mensal renovável. Leia as condições de cancelamento antes de comprar.' :
       'Checkout em preparação. Nenhuma cobrança está sendo realizada neste site.';
   }catch(error) {
     buy.disabled=true;
