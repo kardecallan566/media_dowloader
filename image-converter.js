@@ -26,7 +26,7 @@ export function animatedImage(bytes,type){
  if(type==='gif')return true; // no silent lossy animation flattening
  if(type==='avif'&&String.fromCharCode(...bytes.subarray(8,12))==='avis')return true;
  if(type==='webp'){
-  for(let i=12;i+4<=bytes.length;i++){
+  for(let i=12;i+4<=Math.min(bytes.length,4096);i++){
    const chunk=String.fromCharCode(...bytes.subarray(i,i+4));
    if(chunk==='ANIM'||chunk==='ANMF')return true;
   }
