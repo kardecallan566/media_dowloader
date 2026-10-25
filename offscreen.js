@@ -2,6 +2,7 @@ import { StreamDownloader } from './hls-downloader.js';
 import { parseRange, validateCompleteVideo } from './download-check.js';
 import { downloadRangesToWriter } from './range-downloader.js';
 import { openTemporaryMedia } from './opfs-store.js';
+import { transcodeImage, safeImageFilename } from './image-converter.js';
 
 const jobs = new Map();
 const emit = (tabId, patch) => chrome.runtime.sendMessage({cmd:'jobUpdate',tabId,patch}).catch(() => {});
@@ -140,6 +141,31 @@ async function runDirectVideo(message,controller){
  }finally{jobs.delete(message.id);}
 }
 
+async function runImageConversion(message,controller){
+ let objectUrl=null,queued=false;
+ try{
+  await emit(message.tabId,{id:message.id,status:'running',progress:15,
+   message:'Lendo a imagem original...'});
+  const result=await transcodeImage(message.url,{
+   format:message.format,quality:message.quality,signal:controller.signal
+  });
+  if(controller.signal.aborted)throw new Error('Conversão cancelada.');
+  await emit(message.tabId,{id:message.id,status:'saving',progress:90,
+   message:'Imagem '+result.width+'×'+result.height+' convertida para '+
+    result.format.toUpperCase()+'. Salvando...'});
+  objectUrl=URL.createObjectURL(result.blob);
+  await saveBlob(message,objectUrl,safeImageFilename(message.title,message.id,result.format));
+  queued=true;
+ }catch(error){
+  if(objectUrl&&!queued)URL.revokeObjectURL(objectUrl);
+  await emit(message.tabId,{id:message.id,
+   status:controller.signal.aborted?'canceled':'error',
+   message:error.message||String(error)});
+ }finally{
+  jobs.delete(message.id);
+ }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if(message.cmd==='savedBlobFinished'){
    markBlobSaved(message.downloadId);
@@ -163,6 +189,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.cmd === 'cancelJob') {
     jobs.get(message.id)?.cancel();
     respond({ok:true});
+    return;
+  }
+  if(message.cmd==='runImageJob'){
+    if(jobs.has(message.id)){
+      respond({ok:false,error:'Esta imagem já está em processamento.'});return;
+    }
+    const controller=new AbortController();
+    jobs.set(message.id,{cancel:()=>controller.abort()});
+    respond({ok:true});
+    runImageConversion(message,controller);
     return;
   }
   if (message.cmd === 'runDirectJob') {
