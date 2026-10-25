@@ -1,4 +1,29 @@
-# Media Finder Pro · v1.14.1
+# Media Finder Pro · v1.15.0
+
+## Novo: conversor de imagens na aba Imagens
+
+A extensão permite selecionar o formato desejado **antes do download**: **Original**, **PNG**, **JPG/JPEG** ou **WebP**. Exemplo: uma foto fornecida pelo site como `.webp` pode ser salva diretamente como `.png` ou `.jpg`, com conversão real do conteúdo, não apenas alteração do nome do arquivo.
+
+- O seletor fica em cada cartão da aba **Imagens**. Depois de escolher PNG, JPG ou WebP, o botão vira **Converter e baixar PNG/JPG/WEBP**.
+- O formato e a qualidade escolhidos são lembrados localmente para outros downloads. **Original** continua disponível para não modificar a imagem.
+- **PNG** mantém transparência e não aplica perda adicional na codificação. **JPG** usa fundo branco em imagens transparentes; **WebP** também pode preservar transparência.
+- Para **JPG e WebP**, opções de qualidade: **70%, 85%, 92% e 100%**. Valores maiores podem aumentar o tamanho, mas não criam detalhes inexistentes.
+- O conteúdo é obtido pelo documento auxiliar da extensão e processado localmente usando canvas/codificador do navegador. Não é enviado a servidores de conversão. O arquivo final usa a extensão correta e é salvo pelo Chrome/Brave em `Downloads/MediaFinder/Imagens/`.
+- Se a imagem for animada (GIF ou WebP animado), a conversão é recusada para **não eliminar silenciosamente a animação**; baixe no formato original.
+- A conversão exige uma imagem raster compatível, sem DRM ou bloqueio de acesso, com até **48 MiB de dados** e até **36 megapixels** de resolução, para proteger o processo do navegador contra falta de memória. A opção **Original** não usa esses limites do conversor e preserva o fluxo antigo de download.
+- Arquivos HTML/SVG disfarçados de imagem, formatos de saída não suportados pelo navegador ou respostas HTTP negadas não são salvos como se fossem imagens convertidas.
+- Cancelar interrompe a conversão, e o sistema remove a URL temporária do arquivo depois do download.
+
+### Atualizar
+
+1. `git pull origin main`.
+2. Entre em `brave://extensions` (ou `chrome://extensions`) e clique em **Recarregar** no Media Finder Pro.
+3. Atualize a aba do site, abra **Imagens**, escolha `PNG` ou `JPG` e clique em **Converter e baixar**.
+4. Confirme **v1.15.0** no rodapé. Não é necessário reinstalar o assistente Python: esta versão altera somente arquivos da extensão.
+
+Os testes verificam WebP→PNG/JPG, PNG/JPEG→outros formatos, preservação/remoção correta de transparência, cabeçalhos, assinaturas de entrada, MIME final, animações, tamanho máximo e entrega do Blob para a API Downloads do service worker. O acesso a imagens protegidas continua sujeito às permissões reais do servidor.
+
+---
 
 ## Interface mais compacta para playlists do YouTube
 
