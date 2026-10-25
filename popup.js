@@ -22,6 +22,10 @@ const chosenNativeQuality=new Map();
 const chosenAudioProfile=new Map();
 const hlsQualityList=new Map();
 const hlsSelectedVariant=new Map();
+const imageOutputSelection=new Map();
+const imageQualitySelection=new Map();
+let imageOutputDefault='original';
+let imageQualityDefault=0.92;
 let autoTimer=null;
 const names={video:'Vídeo',image:'Imagem',audio:'Áudio'};
 const icons={video:'▶',image:'▧',audio:'♫'};
@@ -232,6 +236,58 @@ function buildAudioPanel(item,isRunning){
  return panel;
 }
 
+function imageOutputFor(item){
+ return imageOutputSelection.get(item.id)||imageOutputDefault;
+}
+function imageQualityFor(item){
+ return imageQualitySelection.get(item.id)||imageQualityDefault;
+}
+function imageFormatPanel(item){
+ const wrap=node('div','image-format-panel');
+ const title=node('label','quality-label','Formato para salvar a imagem');
+ const select=document.createElement('select');select.className='quality-select';
+ select.setAttribute('aria-label','Formato de saída da imagem');
+ const source=fileExtension(item)?.toUpperCase()||'original';
+ const values=[['original','Original ('+source+') — sem conversão'],
+  ['png','PNG · sem perdas, mantém transparência'],
+  ['jpg','JPG · arquivo compacto, fundo branco'],
+  ['webp','WebP · compacto, mantém transparência']];
+ for(const [value,description] of values){
+  const option=document.createElement('option');option.value=value;option.textContent=description;
+  select.append(option);
+ }
+ select.value=imageOutputFor(item);
+ select.onchange=()=>{
+  imageOutputSelection.set(item.id,select.value);
+  imageOutputDefault=select.value;
+  chrome.storage.local.set({imageOutputPreference:select.value}).catch(()=>{});
+  render();
+ };
+ title.append(select);wrap.append(title);
+ const format=imageOutputFor(item);
+ if(format==='jpg'||format==='webp'){
+  const qualityLabel=node('label','quality-label','Qualidade de compressão');
+  const quality=document.createElement('select');quality.className='quality-select';
+  for(const [value,description] of [['0.92','Alta · 92%'],['0.85','Equilibrada · 85%'],
+   ['0.7','Compacta · 70%'],['1','Máxima · 100%']]){
+   const option=document.createElement('option');option.value=value;option.textContent=description;
+   quality.append(option);
+  }
+  quality.value=String(imageQualityFor(item));
+  quality.onchange=()=>{
+   imageQualitySelection.set(item.id,Number(quality.value));
+   imageQualityDefault=Number(quality.value);
+   chrome.storage.local.set({imageQualityPreference:Number(quality.value)}).catch(()=>{});
+  };
+  qualityLabel.append(quality);wrap.append(qualityLabel);
+ }
+ wrap.append(node('div','notice',format==='original'?
+  'Baixa a imagem exatamente como fornecida pelo site.':
+  format==='jpg'?
+  'Conversão local: áreas transparentes recebem fundo branco. Não aumenta a resolução da imagem.':
+  'Conversão local no navegador, sem enviar para serviços externos. Animações permanecem no formato original.'));
+ return wrap;
+}
 function mediaCard(item,index,{uncertain=false,audioOnly=false}={}){
  const kind=group(item.type);
  const card=node('article','media-card');
@@ -296,6 +352,11 @@ function mediaCard(item,index,{uncertain=false,audioOnly=false}={}){
  if(inaccessibleHls)button.textContent=expiredHls?'Playlist expirada — recarregue o episódio':'Playlist recusada — consulte a origem';
  if(nativeHls)button.textContent=isRunning?'Baixando com assistente local...':'Baixar com assistente local';
  if(formatMissing)button.textContent='Formato indisponível';
+ if(item.type==='Image'){
+  const output=imageOutputFor(item);
+  button.textContent=isRunning?'Processando imagem...':
+   output==='original'?'Baixar imagem original':'Converter e baixar '+output.toUpperCase();
+ }
  button.disabled=isRunning||expiredHls||(inaccessibleHls&&!nativeHls)||item.type==='DASH'||(formatMissing&&item.type!=='Player');
  button.title=item.type==='Player'?'Abrir possíveis fontes; é necessário conferir se pertencem ao vídeo atual.':
   item.type==='DASH'?'O formato DASH precisa de um muxer de áudio e vídeo.':
@@ -310,9 +371,12 @@ function mediaCard(item,index,{uncertain=false,audioOnly=false}={}){
   }
   button.disabled=true;button.textContent='Preparando...';notify('');
   try{
-   const cmd=nativeHls?'startNativeSource':blocked?'verifyMedia':'startDownload';
+   const imageConvert=item.type==='Image'&&imageOutputFor(item)!=='original';
+   const cmd=imageConvert?'startImageConversion':
+    nativeHls?'startNativeSource':blocked?'verifyMedia':'startDownload';
    const result=await chrome.runtime.sendMessage({cmd,tabId,id:item.id,force:blocked,
-    quality:chosenNativeQuality.get(item.id)||'best',
+    format:imageConvert?imageOutputFor(item):undefined,
+    quality:imageConvert?imageQualityFor(item):(chosenNativeQuality.get(item.id)||'best'),
     selectedUrl:!nativeHls?(hlsSelectedVariant.get(item.id)||null):null});
    if(!result?.ok)throw new Error(result?.error||'Não foi possível verificar o arquivo.');
    if(cmd==='verifyMedia'&&result.analysis?.canDownload)notify('Fonte aprovada na verificação. Clique em Baixar para continuar.');
@@ -320,6 +384,7 @@ function mediaCard(item,index,{uncertain=false,audioOnly=false}={}){
   }catch(error){notify(error.message);await load();}
  };
  actions.append(button);
+ if(item.type==='Image')card.append(imageFormatPanel(item));
  if(item.type==='HLS'&&!nativeHls&&!expiredHls)card.append(hlsQualitySelector(item));
  if(nativeHls)card.append(nativeQualitySelector(item));
  if(isRunning){
@@ -713,7 +778,12 @@ chrome.storage.onChanged.addListener((changes,area)=>{
   if(!tab?.id)throw new Error('Não foi possível identificar a aba atual.');
   tabId=tab.id;tabUrl=tab.url||'';
   const activePlaylist=youtubePlaylistUrl(tabUrl);
-  const {playlistFormDraft={}}=await chrome.storage.local.get('playlistFormDraft');
+  const {playlistFormDraft={},imageOutputPreference='original',imageQualityPreference=0.92}=
+   await chrome.storage.local.get(['playlistFormDraft','imageOutputPreference','imageQualityPreference']);
+  if(['original','png','jpg','webp'].includes(imageOutputPreference))
+   imageOutputDefault=imageOutputPreference;
+  if([0.7,0.85,0.92,1].includes(imageQualityPreference))
+   imageQualityDefault=imageQualityPreference;
   if(activePlaylist)playlistEls.url.value=activePlaylist;
   else if(youtubePlaylistUrl(playlistFormDraft.url||'')){
    playlistEls.url.value=playlistFormDraft.url;
