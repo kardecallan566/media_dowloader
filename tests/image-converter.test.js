@@ -74,7 +74,10 @@ test('output MIME mismatch is refused instead of saving a wrongly labeled image'
 });
 test('rejects animation rather than silently saving only the first frame',async()=>{
  assert.equal(animatedImage(gif,'gif'),true);
- assert.equal(animatedImage(new Uint8Array([...webp.slice(0,20),2,0,0,0]),'webp'),true);
+ const animatedWebp=new Uint8Array(webp);
+ animatedWebp[15]=88; // VP8X extended header, not VP8  (static)
+ animatedWebp[20]=2;  // animation flag
+ assert.equal(animatedImage(animatedWebp,'webp'),true);
  assert.equal(animatedImage(webp,'webp'),false);
  await assert.rejects(run(gif,{format:'png'}).promise,/animada/);
 });
