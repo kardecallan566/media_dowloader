@@ -392,6 +392,32 @@ async function startDownload(tabId,id,selectedUrl=null){
   return {ok:true};
  }catch(err){await patchMedia(tabId,id,{status:'error',message:err.message});throw err;}
 }
+async function startImageConversion(tabId,id,format,quality=0.92){
+ if(!validTab(tabId))throw new Error('Aba de imagem inválida.');
+ if(!['png','jpg','webp'].includes(format))throw new Error('Formato de imagem inválido.');
+ if(![0.7,0.85,0.92,1].includes(quality))throw new Error('Qualidade de imagem inválida.');
+ const item=await getItem(tabId,id);
+ if(!item||item.type!=='Image')throw new Error('Selecione uma imagem detectada.');
+ if(running(item.status))throw new Error('Esta imagem já está sendo processada.');
+ const url=new URL(item.url);
+ if(!['https:','http:'].includes(url.protocol))throw new Error('Fonte de imagem inválida.');
+ if(!await chrome.offscreen.hasDocument())await chrome.offscreen.createDocument({
+  url:'offscreen.html',reasons:['BLOBS'],
+  justification:'Converter imagens em PNG, JPG ou WebP localmente antes de salvar'
+ });
+ await patchMedia(tabId,id,{status:'running',progress:0,
+  message:'Preparando conversão para '+format.toUpperCase()+'...'});
+ try{
+  const response=await chrome.runtime.sendMessage({cmd:'runImageJob',
+   id:item.id,tabId,url:item.url,title:item.label||item.tabTitle||'imagem',
+   format,quality});
+  if(!response?.ok)throw new Error(response?.error||'Falha ao iniciar conversão.');
+  return {ok:true};
+ }catch(error){
+  await patchMedia(tabId,id,{status:'error',message:error.message});
+  throw error;
+ }
+}
 async function getHlsQualities(tabId,id){
  const item=await getItem(tabId,id);
  if(!item||item.type!=='HLS')throw new Error('Selecione uma playlist HLS detectada.');
@@ -538,7 +564,7 @@ async function cancelDownload(tabId,id){
  if(item.downloadId!==undefined&&item.status==='downloading'){
   await chrome.downloads.cancel(item.downloadId);
   await patchMedia(tabId,id,{status:'canceled',message:'Download cancelado.'});
- }else if(['HLS','Video'].includes(item.type)&&
+ }else if(['HLS','Video','Image'].includes(item.type)&&
    ['checking','running','saving'].includes(item.status)){
   await chrome.runtime.sendMessage({cmd:'cancelJob',id}).catch(()=>{});
   await patchMedia(tabId,id,{status:'canceled',message:'Download cancelado pelo usuário.'});
@@ -565,7 +591,7 @@ function validOffscreenSave(sender,msg){
  if(!validTab(msg.tabId)||typeof msg.id!=='string'||msg.id.length>128)return false;
  if(typeof msg.url!=='string'||!msg.url.startsWith('blob:'+chrome.runtime.getURL('')))return false;
  return typeof msg.filename==='string'&&
-  /^MediaFinder\/[a-zA-Z0-9_-]{1,100}\.(?:ts|mp4|webm|aac|mp3)$/.test(msg.filename);
+  /^MediaFinder\/(?:Imagens\/)?[a-zA-Z0-9_-]{1,100}\.(?:ts|mp4|webm|aac|mp3|png|jpg|webp)$/.test(msg.filename);
 }
 async function saveOffscreenBlob(msg,sender){
  if(!validOffscreenSave(sender,msg))throw new Error('Solicitação inválida do processador auxiliar.');
@@ -589,7 +615,7 @@ async function saveOffscreenBlob(msg,sender){
 }
 
 chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
- if(['runHlsJob','runDirectJob','cancelJob','inspectHlsJob'].includes(msg?.cmd))return false; // offscreen owns these.
+ if(['runHlsJob','runDirectJob','runImageJob','cancelJob','inspectHlsJob'].includes(msg?.cmd))return false; // offscreen owns these.
  (async()=>{
   if(msg.cmd==='onMediaDetected' || msg.cmd==='mediaSnapshot'){
    const list=msg.cmd==='mediaSnapshot'?msg.items:[msg];
@@ -609,6 +635,7 @@ chrome.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(msg.cmd==='saveBlobDownload')return saveOffscreenBlob(msg,sender);
   if(msg.cmd==='verifyMedia')return verifyAndSave(msg.tabId,msg.id,Boolean(msg.force));
   if(msg.cmd==='startDownload')return startDownload(msg.tabId,msg.id,msg.selectedUrl||null);
+  if(msg.cmd==='startImageConversion')return startImageConversion(msg.tabId,msg.id,msg.format,msg.quality);
   if(msg.cmd==='getHlsQualities')return getHlsQualities(msg.tabId,msg.id);
   if(msg.cmd==='startNativeDownload')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,msg.manualUrl||null,msg.quality||'best');
   if(msg.cmd==='startNativeAudio')return startNativeDownload(msg.tabId,msg.id,msg.cookiesBrowser||null,
