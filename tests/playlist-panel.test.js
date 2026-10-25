@@ -38,7 +38,7 @@ test('dialog supports closing, keyboard navigation and active-download indicator
 test('playlist fields preserve safe canonical URL and format across popup reopening, not cookies',()=>{
  assert.match(script,/playlistFormDraft:\s*\{\s*url,format:playlistEls\.format\.value/);
  assert.match(script,/youtubePlaylistUrl\(playlistEls\.url\.value\)/);
- assert.match(script,/chrome\.storage\.local\.get\('playlistFormDraft'\)/);
+ assert.match(script,/chrome\.storage\.local\.get\((?:'playlistFormDraft'|\['playlistFormDraft')/);
  assert.ok(!script.includes('cookies:playlistEls.cookies.value'));
  assert.ok(!script.includes('playlistCookies:playlistEls.cookies.value'));
  assert.match(script,/const activePlaylist=youtubePlaylistUrl\(tabUrl\)/);
