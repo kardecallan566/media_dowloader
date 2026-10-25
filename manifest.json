@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media Finder Pro",
-  "description": "Encontre mídias e baixe playlists do YouTube com acesso rápido pelo cabeçalho.",
-  "version": "1.14.1",
+  "description": "Encontre vídeos, imagens e áudios; converta imagens para PNG, JPG ou WebP antes de baixar.",
+  "version": "1.15.0",
   "action": {
     "default_title": "Media Finder Pro",
     "default_popup": "popup.html"
