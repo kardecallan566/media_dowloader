@@ -29,6 +29,9 @@ function createOffscreenHarness(){
   parseRange:()=>null,
   validateCompleteVideo:()=>({ok:true}),
   downloadRangesToWriter:async()=>({bytes:0}),
+  transcodeImage:async()=>({blob:new Blob([new Uint8Array([137,80,78,71,0,0])],{type:'image/png'}),
+    format:'png',width:32,height:32,sourceType:'webp'}),
+  safeImageFilename:(title,id,format)=>'MediaFinder/Imagens/'+title+'_'+id+'.'+format,
   openTemporaryMedia:async()=>({
    writer:{write:async()=>{}},
    finish:async()=>({file:new Blob([new Uint8Array([0x47,0,0,0])]),cleanup:async()=>{}}),
@@ -71,4 +74,18 @@ test('offscreen HLS delegates Chrome saving to background, not unavailable chrom
 test('offscreen never accesses chrome.downloads directly on HLS or direct video path',()=>{
  assert.doesNotMatch(source,/chrome\.downloads\./);
  assert.match(source,/await saveBlob\(message,objectUrl/);
+});
+
+test('offscreen image conversion saves real PNG filename through background API',async()=>{
+ const mock=createOffscreenHarness();
+ const result=await mock.send({cmd:'runImageJob',id:'picture01',tabId:7,
+  url:'https://cdn.example/picture.webp',title:'Imagem',format:'png',quality:0.92});
+ assert.equal(result.ok,true);
+ const saved=await mock.saved;
+ assert.equal(saved.cmd,'saveBlobDownload');
+ assert.equal(saved.filename,'MediaFinder/Imagens/Imagem_picture01.png');
+ assert.ok(saved.url.startsWith('blob:chrome-extension:'));
+ await mock.send({cmd:'savedBlobFinished',downloadId:42});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(mock.released.length,1);
 });
